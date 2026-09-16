@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma-cliente"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model grupos_hosts {
+  id             Int       @id @default(autoincrement())
+  groupid_zabbix BigInt    @unique
+  nome           String    @db.VarChar(255)
+  data_sync      DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model logs_acesso {
+  id         Int       @id @default(autoincrement())
+  usuario_id Int?
+  acao       String?   @db.VarChar(100)
+  ip         String?   @db.VarChar(45)
+  data       DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([usuario_id], map: "idx_logs_acesso_usuario")
+}
+
+model monthly_consolidated {
+  id         Int       @id @default(autoincrement())
+  group_id   Int
+  year       Int
+  month      Int
+  data       Json
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([group_id, year, month])
+}
+
+model usuarios {
+  id             Int       @id @default(autoincrement())
+  nome           String    @db.VarChar(150)
+  cargo          String    @default("cargo") @db.VarChar(45)
+  email          String    @unique @db.VarChar(150)
+  senha          String    @db.VarChar(255)
+  id_grupo       Int
+  ativo          Boolean?  @default(true)
+  data_criacao   DateTime? @default(now()) @db.Timestamp(6)
+  ultimo_acesso  DateTime? @db.Timestamp(6)
+  token_ativacao String?   @db.VarChar(255)
+  token_expira   DateTime? @db.Timestamp(6)
+
+  @@index([email], map: "idx_usuarios_email")
+  @@index([id_grupo], map: "idx_usuarios_grupo")
+}

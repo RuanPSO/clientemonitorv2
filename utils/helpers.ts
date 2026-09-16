@@ -1,3 +1,6 @@
+//importacoes 
+import crypto from 'node:crypto'
+
 // utils/helpers.ts
 
 // =============================================================
@@ -120,4 +123,59 @@ const GB = 1_073_741_824
 export function bytesParaGb(bytes: number | bigint | null | undefined): number {
   if (bytes === null || bytes === undefined) return 0
   return round2(Number(bytes) / GB)
+}
+
+
+/**
+ * Verifica uma senha contra um hash do werkzeug (Flask).
+ * Suporta formatos:
+ *   - pbkdf2:sha256:600000$salt$hash
+ *   - pbkdf2:sha256$salt$hash
+ *   - scrypt:32768:8:1$salt$hash
+ *
+ * Compatível com check_password_hash() do werkzeug.
+ */
+export function verificarSenhaWerkzeug(senha: string, hashArmazenado: string): boolean {
+  try {
+    const parts = hashArmazenado.split('$')
+    if (parts.length !== 3) return false
+
+    const methodPart = parts[0]
+    const salt = parts[1]
+    const hashEsperado = parts[2]
+    if (methodPart === undefined || salt === undefined || hashEsperado === undefined) return false
+
+    const methodParts = methodPart.split(':')
+    const metodo = methodParts[0]
+    const keylen = hashEsperado.length / 2
+
+    let derivado: Buffer
+
+    if (metodo === 'pbkdf2') {
+      const digest = methodParts[1] ?? 'sha256'
+      const iterations = methodParts[2] ? parseInt(methodParts[2], 10) : 260000
+      derivado = crypto.pbkdf2Sync(senha, salt, iterations, keylen, digest)
+    } else if (metodo === 'scrypt') {
+      const N = parseInt(methodParts[1] ?? '32768', 10)
+      const r = parseInt(methodParts[2] ?? '8', 10)
+      const p = parseInt(methodParts[3] ?? '1', 10)
+      derivado = crypto.scryptSync(senha, salt, keylen, {
+        N,
+        r,
+        p,
+        maxmem: 128 * N * r * 2,
+      })
+    } else {
+      console.warn(`[auth] Método de hash não suportado: ${metodo}`)
+      return false
+    }
+
+    const esperado = Buffer.from(hashEsperado, 'hex')
+    if (derivado.length !== esperado.length) return false
+
+    return crypto.timingSafeEqual(derivado, esperado)
+  } catch (e) {
+    console.error('[auth] Erro ao verificar senha:', e)
+    return false
+  }
 }
