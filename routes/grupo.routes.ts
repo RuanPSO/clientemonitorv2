@@ -1,0 +1,41 @@
+// routes/grupo.routes.ts
+import { Router, type Request, type Response } from 'express'
+import { ZabbixService } from '../services/zabbix.service.js'
+import { validarToken } from '../middlewares/auth.middleware.js'
+
+const router = Router()
+
+// ─────────────────────────────────────────────────────────────
+// GET /grupos
+// Lista todos os grupos do Zabbix (hstgrp)
+// ─────────────────────────────────────────────────────────────
+router.get('/grupos', validarToken, async (_req, res: Response) => {
+  try {
+    const grupos = await ZabbixService.listarGrupos()
+    res.json(grupos)
+  } catch (e: unknown) {
+    res.status(500).json({ erro: (e as Error).message })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// GET /grupo/:chave/hosts
+// Dispatcher (opção B):
+//   - Se ":chave" for só dígitos → busca por groupid
+//   - Senão → busca por nome do grupo
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/grupo/:chave/hosts',
+  validarToken,
+  async (req: Request<{ chave: string }>, res: Response) => {
+    try {
+      const { chave } = req.params
+      const resultado = await ZabbixService.getHostsPorChave(chave)
+      res.json(resultado)
+    } catch (e: unknown) {
+      res.status(500).json({ erro: (e as Error).message })
+    }
+  },
+)
+
+export default router

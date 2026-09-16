@@ -1,0 +1,3170 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model acknowledges {
+  acknowledgeid  BigInt   @id
+  userid         BigInt
+  eventid        BigInt
+  clock          Int      @default(0)
+  message        String   @default("") @db.VarChar(2048)
+  action         Int      @default(0)
+  old_severity   Int      @default(0)
+  new_severity   Int      @default(0)
+  suppress_until Int      @default(0)
+  taskid         BigInt?
+  users          users    @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_acknowledges_1")
+  events         events   @relation(fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_acknowledges_2")
+  alerts         alerts[]
+
+  @@index([userid], map: "acknowledges_1")
+  @@index([eventid], map: "acknowledges_2")
+  @@index([clock], map: "acknowledges_3")
+}
+
+model actions {
+  actionid           BigInt         @id
+  name               String         @unique(map: "actions_2") @default("") @db.VarChar(255)
+  eventsource        Int            @default(0)
+  evaltype           Int            @default(0)
+  status             Int            @default(0)
+  esc_period         String         @default("1h") @db.VarChar(255)
+  formula            String         @default("") @db.VarChar(1024)
+  pause_suppressed   Int            @default(1)
+  notify_if_canceled Int            @default(1)
+  pause_symptoms     Int            @default(1)
+  alerts             alerts[]
+  conditions         conditions[]
+  operations         operations[]
+  widget_field       widget_field[]
+
+  @@index([eventsource, status], map: "actions_1")
+}
+
+model alerts {
+  alertid                         BigInt        @id
+  actionid                        BigInt
+  eventid                         BigInt
+  userid                          BigInt?
+  clock                           Int           @default(0)
+  mediatypeid                     BigInt?
+  sendto                          String        @default("") @db.VarChar(1024)
+  subject                         String        @default("") @db.VarChar(255)
+  message                         String        @default("")
+  status                          Int           @default(0)
+  retries                         Int           @default(0)
+  error                           String        @default("") @db.VarChar(2048)
+  esc_step                        Int           @default(0)
+  alerttype                       Int           @default(0)
+  p_eventid                       BigInt?
+  acknowledgeid                   BigInt?
+  parameters                      String        @default("{}")
+  actions                         actions       @relation(fields: [actionid], references: [actionid], onDelete: Cascade, onUpdate: NoAction, map: "c_alerts_1")
+  events_alerts_eventidToevents   events        @relation("alerts_eventidToevents", fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_alerts_2")
+  users                           users?        @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_alerts_3")
+  media_type                      media_type?   @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_alerts_4")
+  events_alerts_p_eventidToevents events?       @relation("alerts_p_eventidToevents", fields: [p_eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_alerts_5")
+  acknowledges                    acknowledges? @relation(fields: [acknowledgeid], references: [acknowledgeid], onDelete: Cascade, onUpdate: NoAction, map: "c_alerts_6")
+
+  @@index([actionid], map: "alerts_1")
+  @@index([clock], map: "alerts_2")
+  @@index([eventid], map: "alerts_3")
+  @@index([status], map: "alerts_4")
+  @@index([mediatypeid], map: "alerts_5")
+  @@index([userid], map: "alerts_6")
+  @@index([p_eventid], map: "alerts_7")
+  @@index([acknowledgeid], map: "alerts_8")
+}
+
+model auditlog {
+  auditid       String  @id @db.VarChar(25)
+  userid        BigInt?
+  username      String  @default("") @db.VarChar(100)
+  clock         Int     @default(0)
+  ip            String  @default("") @db.VarChar(39)
+  action        Int     @default(0)
+  resourcetype  Int     @default(0)
+  resourceid    BigInt?
+  resource_cuid String? @db.VarChar(25)
+  resourcename  String  @default("") @db.VarChar(255)
+  recordsetid   String  @db.VarChar(25)
+  details       String  @default("")
+
+  @@index([userid, clock], map: "auditlog_1")
+  @@index([clock], map: "auditlog_2")
+  @@index([resourcetype, resourceid], map: "auditlog_3")
+  @@index([recordsetid], map: "auditlog_4")
+  @@index([ip], map: "auditlog_5")
+}
+
+model autoreg_host {
+  autoreg_hostid BigInt  @id
+  proxyid        BigInt?
+  host           String  @default("") @db.VarChar(128)
+  listen_ip      String  @default("") @db.VarChar(39)
+  listen_port    Int     @default(0)
+  listen_dns     String  @default("") @db.VarChar(255)
+  host_metadata  String  @default("")
+  flags          Int     @default(0)
+  tls_accepted   Int     @default(1)
+  proxy          proxy?  @relation(fields: [proxyid], references: [proxyid], onDelete: Cascade, onUpdate: NoAction, map: "c_autoreg_host_1")
+
+  @@index([host], map: "autoreg_host_1")
+  @@index([proxyid], map: "autoreg_host_2")
+}
+
+model changelog {
+  changelogid BigInt @id @default(autoincrement())
+  object      Int    @default(0)
+  objectid    BigInt
+  operation   Int    @default(0)
+  clock       Int    @default(0)
+
+  @@index([clock], map: "changelog_1")
+}
+
+model conditions {
+  conditionid   BigInt  @id
+  actionid      BigInt
+  conditiontype Int     @default(0)
+  operator      Int     @default(0)
+  value         String  @default("") @db.VarChar(255)
+  value2        String  @default("") @db.VarChar(255)
+  actions       actions @relation(fields: [actionid], references: [actionid], onDelete: Cascade, onUpdate: NoAction, map: "c_conditions_1")
+
+  @@index([actionid], map: "conditions_1")
+}
+
+model config_autoreg_tls {
+  autoreg_tlsid    BigInt @id
+  tls_psk_identity String @unique(map: "config_autoreg_tls_1") @default("") @db.VarChar(128)
+  tls_psk          String @default("") @db.VarChar(512)
+}
+
+model connector {
+  connectorid      BigInt          @id
+  name             String          @unique(map: "connector_1") @default("") @db.VarChar(255)
+  protocol         Int             @default(0)
+  data_type        Int             @default(0)
+  url              String          @default("") @db.VarChar(2048)
+  max_records      Int             @default(0)
+  max_senders      Int             @default(1)
+  max_attempts     Int             @default(1)
+  timeout          String          @default("5s") @db.VarChar(255)
+  http_proxy       String          @default("") @db.VarChar(255)
+  authtype         Int             @default(0)
+  username         String          @default("") @db.VarChar(255)
+  password         String          @default("") @db.VarChar(255)
+  token            String          @default("") @db.VarChar(128)
+  verify_peer      Int             @default(1)
+  verify_host      Int             @default(1)
+  ssl_cert_file    String          @default("") @db.VarChar(255)
+  ssl_key_file     String          @default("") @db.VarChar(255)
+  ssl_key_password String          @default("") @db.VarChar(64)
+  description      String          @default("")
+  status           Int             @default(1)
+  tags_evaltype    Int             @default(0)
+  item_value_type  Int             @default(31)
+  attempt_interval String          @default("5s") @db.VarChar(32)
+  connector_tag    connector_tag[]
+}
+
+model connector_tag {
+  connector_tagid BigInt    @id
+  connectorid     BigInt
+  tag             String    @default("") @db.VarChar(255)
+  operator        Int       @default(0)
+  value           String    @default("") @db.VarChar(255)
+  connector       connector @relation(fields: [connectorid], references: [connectorid], onDelete: NoAction, onUpdate: NoAction, map: "c_connector_tag_1")
+
+  @@index([connectorid], map: "connector_tag_1")
+}
+
+model corr_condition {
+  corr_conditionid        BigInt                   @id
+  correlationid           BigInt
+  type                    Int                      @default(0)
+  correlation             correlation              @relation(fields: [correlationid], references: [correlationid], onDelete: Cascade, onUpdate: NoAction, map: "c_corr_condition_1")
+  corr_condition_group    corr_condition_group?
+  corr_condition_tag      corr_condition_tag?
+  corr_condition_tagpair  corr_condition_tagpair?
+  corr_condition_tagvalue corr_condition_tagvalue?
+
+  @@index([correlationid], map: "corr_condition_1")
+}
+
+model corr_condition_group {
+  corr_conditionid BigInt         @id
+  operator         Int            @default(0)
+  groupid          BigInt
+  corr_condition   corr_condition @relation(fields: [corr_conditionid], references: [corr_conditionid], onDelete: Cascade, onUpdate: NoAction, map: "c_corr_condition_group_1")
+  hstgrp           hstgrp         @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_corr_condition_group_2")
+
+  @@index([groupid], map: "corr_condition_group_1")
+}
+
+model corr_condition_tag {
+  corr_conditionid BigInt         @id
+  tag              String         @default("") @db.VarChar(255)
+  corr_condition   corr_condition @relation(fields: [corr_conditionid], references: [corr_conditionid], onDelete: Cascade, onUpdate: NoAction, map: "c_corr_condition_tag_1")
+}
+
+model corr_condition_tagpair {
+  corr_conditionid BigInt         @id
+  oldtag           String         @default("") @db.VarChar(255)
+  newtag           String         @default("") @db.VarChar(255)
+  corr_condition   corr_condition @relation(fields: [corr_conditionid], references: [corr_conditionid], onDelete: Cascade, onUpdate: NoAction, map: "c_corr_condition_tagpair_1")
+}
+
+model corr_condition_tagvalue {
+  corr_conditionid BigInt         @id
+  tag              String         @default("") @db.VarChar(255)
+  operator         Int            @default(0)
+  value            String         @default("") @db.VarChar(255)
+  corr_condition   corr_condition @relation(fields: [corr_conditionid], references: [corr_conditionid], onDelete: Cascade, onUpdate: NoAction, map: "c_corr_condition_tagvalue_1")
+}
+
+model corr_operation {
+  corr_operationid BigInt      @id
+  correlationid    BigInt
+  type             Int         @default(0)
+  correlation      correlation @relation(fields: [correlationid], references: [correlationid], onDelete: Cascade, onUpdate: NoAction, map: "c_corr_operation_1")
+
+  @@index([correlationid], map: "corr_operation_1")
+}
+
+model correlation {
+  correlationid  BigInt           @id
+  name           String           @unique(map: "correlation_2") @default("") @db.VarChar(255)
+  description    String           @default("")
+  evaltype       Int              @default(0)
+  status         Int              @default(0)
+  formula        String           @default("") @db.VarChar(255)
+  corr_condition corr_condition[]
+  corr_operation corr_operation[]
+
+  @@index([status], map: "correlation_1")
+}
+
+model dashboard {
+  dashboardid      BigInt             @id
+  name             String             @db.VarChar(255)
+  userid           BigInt?
+  private          Int                @default(1)
+  templateid       BigInt?
+  display_period   Int                @default(30)
+  auto_start       Int                @default(1)
+  uuid             String             @default("") @db.VarChar(32)
+  users            users?             @relation(fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "c_dashboard_1")
+  hosts            hosts?             @relation(fields: [templateid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_dashboard_2")
+  dashboard_page   dashboard_page[]
+  dashboard_user   dashboard_user[]
+  dashboard_usrgrp dashboard_usrgrp[]
+  report           report[]
+
+  @@index([userid], map: "dashboard_1")
+  @@index([templateid], map: "dashboard_2")
+  @@index([uuid], map: "dashboard_3")
+}
+
+model dashboard_page {
+  dashboard_pageid BigInt    @id
+  dashboardid      BigInt
+  name             String    @default("") @db.VarChar(255)
+  display_period   Int       @default(0)
+  sortorder        Int       @default(0)
+  dashboard        dashboard @relation(fields: [dashboardid], references: [dashboardid], onDelete: Cascade, onUpdate: NoAction, map: "c_dashboard_page_1")
+  widget           widget[]
+
+  @@index([dashboardid], map: "dashboard_page_1")
+}
+
+model dashboard_user {
+  dashboard_userid BigInt    @id
+  dashboardid      BigInt
+  userid           BigInt
+  permission       Int       @default(2)
+  dashboard        dashboard @relation(fields: [dashboardid], references: [dashboardid], onDelete: Cascade, onUpdate: NoAction, map: "c_dashboard_user_1")
+  users            users     @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_dashboard_user_2")
+
+  @@unique([dashboardid, userid], map: "dashboard_user_1")
+  @@index([userid], map: "dashboard_user_2")
+}
+
+model dashboard_usrgrp {
+  dashboard_usrgrpid BigInt    @id
+  dashboardid        BigInt
+  usrgrpid           BigInt
+  permission         Int       @default(2)
+  dashboard          dashboard @relation(fields: [dashboardid], references: [dashboardid], onDelete: Cascade, onUpdate: NoAction, map: "c_dashboard_usrgrp_1")
+  usrgrp             usrgrp    @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_dashboard_usrgrp_2")
+
+  @@unique([dashboardid, usrgrpid], map: "dashboard_usrgrp_1")
+  @@index([usrgrpid], map: "dashboard_usrgrp_2")
+}
+
+model dbversion {
+  dbversionid BigInt @id
+  mandatory   Int    @default(0)
+  optional    Int    @default(0)
+}
+
+model dchecks {
+  dcheckid              BigInt      @id
+  druleid               BigInt
+  type                  Int         @default(0)
+  key_                  String      @default("") @db.VarChar(2048)
+  snmp_community        String      @default("") @db.VarChar(255)
+  ports                 String      @default("0") @db.VarChar(255)
+  snmpv3_securityname   String      @default("") @db.VarChar(64)
+  snmpv3_securitylevel  Int         @default(0)
+  snmpv3_authpassphrase String      @default("") @db.VarChar(64)
+  snmpv3_privpassphrase String      @default("") @db.VarChar(64)
+  uniq                  Int         @default(0)
+  snmpv3_authprotocol   Int         @default(0)
+  snmpv3_privprotocol   Int         @default(0)
+  snmpv3_contextname    String      @default("") @db.VarChar(255)
+  host_source           Int         @default(1)
+  name_source           Int         @default(0)
+  allow_redirect        Int         @default(0)
+  drules                drules      @relation(fields: [druleid], references: [druleid], onDelete: NoAction, onUpdate: NoAction, map: "c_dchecks_1")
+  dservices             dservices[]
+
+  @@index([druleid, host_source, name_source], map: "dchecks_1")
+}
+
+model dhosts {
+  dhostid   BigInt      @id
+  druleid   BigInt
+  status    Int         @default(0)
+  lastup    Int         @default(0)
+  lastdown  Int         @default(0)
+  drules    drules      @relation(fields: [druleid], references: [druleid], onDelete: Cascade, onUpdate: NoAction, map: "c_dhosts_1")
+  dservices dservices[]
+
+  @@index([druleid], map: "dhosts_1")
+}
+
+model drules {
+  druleid         BigInt    @id
+  proxyid         BigInt?
+  name            String    @unique(map: "drules_2") @default("") @db.VarChar(255)
+  iprange         String    @default("") @db.VarChar(2048)
+  delay           String    @default("1h") @db.VarChar(255)
+  status          Int       @default(0)
+  concurrency_max Int       @default(0)
+  error           String    @default("") @db.VarChar(2048)
+  dchecks         dchecks[]
+  dhosts          dhosts[]
+  proxy           proxy?    @relation(fields: [proxyid], references: [proxyid], onDelete: NoAction, onUpdate: NoAction, map: "c_drules_1")
+
+  @@index([proxyid], map: "drules_1")
+}
+
+model dservices {
+  dserviceid BigInt  @id
+  dhostid    BigInt
+  value      String  @default("") @db.VarChar(255)
+  port       Int     @default(0)
+  status     Int     @default(0)
+  lastup     Int     @default(0)
+  lastdown   Int     @default(0)
+  dcheckid   BigInt
+  ip         String  @default("") @db.VarChar(39)
+  dns        String  @default("") @db.VarChar(255)
+  dhosts     dhosts  @relation(fields: [dhostid], references: [dhostid], onDelete: Cascade, onUpdate: NoAction, map: "c_dservices_1")
+  dchecks    dchecks @relation(fields: [dcheckid], references: [dcheckid], onDelete: Cascade, onUpdate: NoAction, map: "c_dservices_2")
+
+  @@unique([dcheckid, ip, port], map: "dservices_1")
+  @@index([dhostid], map: "dservices_2")
+}
+
+model escalations {
+  escalationid   BigInt  @id
+  actionid       BigInt
+  triggerid      BigInt?
+  eventid        BigInt?
+  r_eventid      BigInt?
+  nextcheck      Int     @default(0)
+  esc_step       Int     @default(0)
+  status         Int     @default(0)
+  itemid         BigInt?
+  acknowledgeid  BigInt?
+  servicealarmid BigInt?
+  serviceid      BigInt?
+
+  @@unique([triggerid, itemid, serviceid, escalationid], map: "escalations_1")
+  @@index([eventid], map: "escalations_2")
+  @@index([nextcheck], map: "escalations_3")
+}
+
+model event_recovery {
+  eventid                                 BigInt  @id
+  r_eventid                               BigInt
+  c_eventid                               BigInt?
+  correlationid                           BigInt?
+  userid                                  BigInt?
+  events_event_recovery_eventidToevents   events  @relation("event_recovery_eventidToevents", fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_recovery_1")
+  events_event_recovery_r_eventidToevents events  @relation("event_recovery_r_eventidToevents", fields: [r_eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_recovery_2")
+  events_event_recovery_c_eventidToevents events? @relation("event_recovery_c_eventidToevents", fields: [c_eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_recovery_3")
+
+  @@index([r_eventid], map: "event_recovery_1")
+  @@index([c_eventid], map: "event_recovery_2")
+}
+
+model event_suppress {
+  event_suppressid BigInt        @id
+  eventid          BigInt
+  maintenanceid    BigInt?
+  suppress_until   Int           @default(0)
+  userid           BigInt?
+  events           events        @relation(fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_suppress_1")
+  maintenances     maintenances? @relation(fields: [maintenanceid], references: [maintenanceid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_suppress_2")
+  users            users?        @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_suppress_3")
+
+  @@unique([eventid, maintenanceid], map: "event_suppress_1")
+  @@index([suppress_until], map: "event_suppress_2")
+  @@index([maintenanceid], map: "event_suppress_3")
+  @@index([userid], map: "event_suppress_4")
+}
+
+model event_symptom {
+  eventid                                    BigInt @id
+  cause_eventid                              BigInt
+  events_event_symptom_eventidToevents       events @relation("event_symptom_eventidToevents", fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_symptom_1")
+  events_event_symptom_cause_eventidToevents events @relation("event_symptom_cause_eventidToevents", fields: [cause_eventid], references: [eventid], onDelete: NoAction, onUpdate: NoAction, map: "c_event_symptom_2")
+
+  @@index([cause_eventid], map: "event_symptom_1")
+}
+
+model event_tag {
+  eventtagid BigInt @id
+  eventid    BigInt
+  tag        String @default("") @db.VarChar(255)
+  value      String @default("") @db.VarChar(255)
+  events     events @relation(fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_event_tag_1")
+
+  @@index([eventid], map: "event_tag_1")
+}
+
+model events {
+  eventid                                           BigInt           @id
+  source                                            Int              @default(0)
+  object                                            Int              @default(0)
+  objectid                                          BigInt           @default(0)
+  clock                                             Int              @default(0)
+  value                                             Int              @default(0)
+  acknowledged                                      Int              @default(0)
+  ns                                                Int              @default(0)
+  name                                              String           @default("") @db.VarChar(2048)
+  severity                                          Int              @default(0)
+  acknowledges                                      acknowledges[]
+  alerts_alerts_eventidToevents                     alerts[]         @relation("alerts_eventidToevents")
+  alerts_alerts_p_eventidToevents                   alerts[]         @relation("alerts_p_eventidToevents")
+  event_recovery_event_recovery_eventidToevents     event_recovery?  @relation("event_recovery_eventidToevents")
+  event_recovery_event_recovery_r_eventidToevents   event_recovery[] @relation("event_recovery_r_eventidToevents")
+  event_recovery_event_recovery_c_eventidToevents   event_recovery[] @relation("event_recovery_c_eventidToevents")
+  event_suppress                                    event_suppress[]
+  event_symptom_event_symptom_eventidToevents       event_symptom?   @relation("event_symptom_eventidToevents")
+  event_symptom_event_symptom_cause_eventidToevents event_symptom[]  @relation("event_symptom_cause_eventidToevents")
+  event_tag                                         event_tag[]
+  problem_problem_eventidToevents                   problem?         @relation("problem_eventidToevents")
+  problem_problem_r_eventidToevents                 problem[]        @relation("problem_r_eventidToevents")
+  problem_problem_cause_eventidToevents             problem[]        @relation("problem_cause_eventidToevents")
+
+  @@index([source, object, objectid, clock], map: "events_1")
+  @@index([source, object, clock], map: "events_2")
+}
+
+model expressions {
+  expressionid    BigInt  @id
+  regexpid        BigInt
+  expression      String  @default("") @db.VarChar(255)
+  expression_type Int     @default(0)
+  exp_delimiter   String  @default("") @db.VarChar(1)
+  case_sensitive  Int     @default(0)
+  regexps         regexps @relation(fields: [regexpid], references: [regexpid], onDelete: Cascade, onUpdate: NoAction, map: "c_expressions_1")
+
+  @@index([regexpid], map: "expressions_1")
+}
+
+model functions {
+  functionid BigInt   @id
+  itemid     BigInt
+  triggerid  BigInt
+  name       String   @default("") @db.VarChar(12)
+  parameter  String   @default("0") @db.VarChar(255)
+  items      items    @relation(fields: [itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_functions_1")
+  triggers   triggers @relation(fields: [triggerid], references: [triggerid], onDelete: NoAction, onUpdate: NoAction, map: "c_functions_2")
+
+  @@index([triggerid], map: "functions_1")
+  @@index([itemid, name, parameter], map: "functions_2")
+}
+
+model globalmacro {
+  globalmacroid BigInt @id
+  macro         String @unique(map: "globalmacro_1") @default("") @db.VarChar(255)
+  value         String @default("") @db.VarChar(2048)
+  description   String @default("")
+  type          Int    @default(0)
+}
+
+model globalvars {
+  name  String @id @default("") @db.VarChar(64)
+  value String @default("") @db.VarChar(2048)
+}
+
+model graph_discovery {
+  graphid                                       BigInt @id
+  parent_graphid                                BigInt
+  lastcheck                                     Int    @default(0)
+  ts_delete                                     Int    @default(0)
+  status                                        Int    @default(0)
+  graphs_graph_discovery_graphidTographs        graphs @relation("graph_discovery_graphidTographs", fields: [graphid], references: [graphid], onDelete: Cascade, onUpdate: NoAction, map: "c_graph_discovery_1")
+  graphs_graph_discovery_parent_graphidTographs graphs @relation("graph_discovery_parent_graphidTographs", fields: [parent_graphid], references: [graphid], onDelete: NoAction, onUpdate: NoAction, map: "c_graph_discovery_2")
+
+  @@index([parent_graphid], map: "graph_discovery_1")
+}
+
+model graph_theme {
+  graphthemeid         BigInt @id
+  theme                String @unique(map: "graph_theme_1") @default("") @db.VarChar(64)
+  backgroundcolor      String @default("") @db.VarChar(6)
+  graphcolor           String @default("") @db.VarChar(6)
+  gridcolor            String @default("") @db.VarChar(6)
+  maingridcolor        String @default("") @db.VarChar(6)
+  gridbordercolor      String @default("") @db.VarChar(6)
+  textcolor            String @default("") @db.VarChar(6)
+  highlightcolor       String @default("") @db.VarChar(6)
+  leftpercentilecolor  String @default("") @db.VarChar(6)
+  rightpercentilecolor String @default("") @db.VarChar(6)
+  nonworktimecolor     String @default("") @db.VarChar(6)
+  colorpalette         String @default("") @db.VarChar(255)
+}
+
+model graphs {
+  graphid                                                BigInt            @id
+  name                                                   String            @default("") @db.VarChar(128)
+  width                                                  Int               @default(900)
+  height                                                 Int               @default(200)
+  yaxismin                                               Float             @default(0)
+  yaxismax                                               Float             @default(100)
+  templateid                                             BigInt?
+  show_work_period                                       Int               @default(1)
+  show_triggers                                          Int               @default(1)
+  graphtype                                              Int               @default(0)
+  show_legend                                            Int               @default(1)
+  show_3d                                                Int               @default(0)
+  percent_left                                           Float             @default(0)
+  percent_right                                          Float             @default(0)
+  ymin_type                                              Int               @default(0)
+  ymax_type                                              Int               @default(0)
+  ymin_itemid                                            BigInt?
+  ymax_itemid                                            BigInt?
+  flags                                                  Int               @default(0)
+  discover                                               Int               @default(0)
+  uuid                                                   String            @default("") @db.VarChar(32)
+  graph_discovery_graph_discovery_graphidTographs        graph_discovery?  @relation("graph_discovery_graphidTographs")
+  graph_discovery_graph_discovery_parent_graphidTographs graph_discovery[] @relation("graph_discovery_parent_graphidTographs")
+  graphs                                                 graphs?           @relation("graphsTographs", fields: [templateid], references: [graphid], onDelete: Cascade, onUpdate: NoAction, map: "c_graphs_1")
+  other_graphs                                           graphs[]          @relation("graphsTographs")
+  items_graphs_ymin_itemidToitems                        items?            @relation("graphs_ymin_itemidToitems", fields: [ymin_itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_graphs_2")
+  items_graphs_ymax_itemidToitems                        items?            @relation("graphs_ymax_itemidToitems", fields: [ymax_itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_graphs_3")
+  graphs_items                                           graphs_items[]
+  widget_field                                           widget_field[]
+
+  @@index([name], map: "graphs_1")
+  @@index([templateid], map: "graphs_2")
+  @@index([ymin_itemid], map: "graphs_3")
+  @@index([ymax_itemid], map: "graphs_4")
+  @@index([uuid], map: "graphs_5")
+}
+
+model graphs_items {
+  gitemid   BigInt @id
+  graphid   BigInt
+  itemid    BigInt
+  drawtype  Int    @default(0)
+  sortorder Int    @default(0)
+  color     String @default("009600") @db.VarChar(6)
+  yaxisside Int    @default(0)
+  calc_fnc  Int    @default(2)
+  type      Int    @default(0)
+  graphs    graphs @relation(fields: [graphid], references: [graphid], onDelete: Cascade, onUpdate: NoAction, map: "c_graphs_items_1")
+  items     items  @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_graphs_items_2")
+
+  @@index([itemid], map: "graphs_items_1")
+  @@index([graphid], map: "graphs_items_2")
+}
+
+model group_discovery {
+  groupdiscoveryid         BigInt          @id
+  groupid                  BigInt
+  parent_group_prototypeid BigInt
+  name                     String          @default("") @db.VarChar(255)
+  lastcheck                Int             @default(0)
+  ts_delete                Int             @default(0)
+  status                   Int             @default(0)
+  hstgrp                   hstgrp          @relation(fields: [groupid], references: [groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_group_discovery_1")
+  group_prototype          group_prototype @relation(fields: [parent_group_prototypeid], references: [group_prototypeid], onDelete: NoAction, onUpdate: NoAction, map: "c_group_discovery_2")
+
+  @@unique([groupid, parent_group_prototypeid], map: "group_discovery_1")
+  @@index([parent_group_prototypeid], map: "group_discovery_2")
+}
+
+model group_prototype {
+  group_prototypeid     BigInt            @id
+  hostid                BigInt
+  name                  String            @default("") @db.VarChar(255)
+  groupid               BigInt?
+  templateid            BigInt?
+  group_discovery       group_discovery[]
+  hosts                 hosts             @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_group_prototype_1")
+  hstgrp                hstgrp?           @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_group_prototype_2")
+  group_prototype       group_prototype?  @relation("group_prototypeTogroup_prototype", fields: [templateid], references: [group_prototypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_group_prototype_3")
+  other_group_prototype group_prototype[] @relation("group_prototypeTogroup_prototype")
+
+  @@index([hostid], map: "group_prototype_1")
+  @@index([groupid], map: "group_prototype_2")
+  @@index([templateid], map: "group_prototype_3")
+}
+
+model ha_node {
+  ha_nodeid    String @id @db.VarChar(25)
+  name         String @unique(map: "ha_node_1") @default("") @db.VarChar(255)
+  address      String @default("") @db.VarChar(255)
+  port         Int    @default(10051)
+  lastaccess   Int    @default(0)
+  status       Int    @default(0)
+  ha_sessionid String @default("") @db.VarChar(25)
+
+  @@index([status, lastaccess], map: "ha_node_2")
+}
+
+model hgset {
+  hgsetid     BigInt        @id
+  hash        String        @default("") @db.VarChar(64)
+  hgset_group hgset_group[]
+  host_hgset  host_hgset[]
+  permission  permission[]
+
+  @@index([hash], map: "hgset_1")
+}
+
+model hgset_group {
+  hgsetid BigInt
+  groupid BigInt
+  hgset   hgset  @relation(fields: [hgsetid], references: [hgsetid], onDelete: Cascade, onUpdate: NoAction, map: "c_hgset_group_1")
+  hstgrp  hstgrp @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_hgset_group_2")
+
+  @@id([hgsetid, groupid])
+  @@index([groupid], map: "hgset_group_1")
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model history {
+  itemid BigInt
+  clock  Int    @default(0)
+  value  Float  @default(0)
+  ns     Int    @default(0)
+
+  @@id([itemid, clock, ns])
+  @@index([clock(sort: Desc)])
+}
+
+model history_bin {
+  itemid BigInt
+  clock  Int    @default(0)
+  ns     Int    @default(0)
+  value  Bytes  @default("")
+
+  @@id([itemid, clock, ns])
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model history_log {
+  itemid     BigInt
+  clock      Int    @default(0)
+  timestamp  Int    @default(0)
+  source     String @default("") @db.VarChar(64)
+  severity   Int    @default(0)
+  value      String @default("")
+  logeventid Int    @default(0)
+  ns         Int    @default(0)
+
+  @@id([itemid, clock, ns])
+  @@index([clock(sort: Desc)])
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model history_str {
+  itemid BigInt
+  clock  Int    @default(0)
+  value  String @default("") @db.VarChar(255)
+  ns     Int    @default(0)
+
+  @@id([itemid, clock, ns])
+  @@index([clock(sort: Desc)])
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model history_text {
+  itemid BigInt
+  clock  Int    @default(0)
+  value  String @default("")
+  ns     Int    @default(0)
+
+  @@id([itemid, clock, ns])
+  @@index([clock(sort: Desc)])
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model history_uint {
+  itemid BigInt
+  clock  Int     @default(0)
+  value  Decimal @default(0) @db.Decimal(20, 0)
+  ns     Int     @default(0)
+
+  @@id([itemid, clock, ns])
+  @@index([clock(sort: Desc)])
+}
+
+model host_discovery {
+  hostid                                    BigInt  @id
+  parent_hostid                             BigInt?
+  lldruleid                                 BigInt?
+  host                                      String  @default("") @db.VarChar(128)
+  lastcheck                                 Int     @default(0)
+  ts_delete                                 Int     @default(0)
+  status                                    Int     @default(0)
+  disable_source                            Int     @default(0)
+  ts_disable                                Int     @default(0)
+  hosts_host_discovery_hostidTohosts        hosts   @relation("host_discovery_hostidTohosts", fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_host_discovery_1")
+  hosts_host_discovery_parent_hostidTohosts hosts?  @relation("host_discovery_parent_hostidTohosts", fields: [parent_hostid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_host_discovery_2")
+  items                                     items?  @relation(fields: [lldruleid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_host_discovery_3")
+
+  @@index([parent_hostid], map: "host_discovery_1")
+  @@index([lldruleid], map: "host_discovery_2")
+}
+
+model host_hgset {
+  hostid  BigInt @id
+  hgsetid BigInt
+  hosts   hosts  @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_host_hgset_1")
+  hgset   hgset  @relation(fields: [hgsetid], references: [hgsetid], onDelete: NoAction, onUpdate: NoAction, map: "c_host_hgset_2")
+
+  @@index([hgsetid], map: "host_hgset_1")
+}
+
+model host_inventory {
+  hostid            BigInt @id
+  inventory_mode    Int    @default(0)
+  type              String @default("") @db.VarChar(64)
+  type_full         String @default("") @db.VarChar(64)
+  name              String @default("") @db.VarChar(128)
+  alias             String @default("") @db.VarChar(128)
+  os                String @default("") @db.VarChar(128)
+  os_full           String @default("") @db.VarChar(255)
+  os_short          String @default("") @db.VarChar(128)
+  serialno_a        String @default("") @db.VarChar(64)
+  serialno_b        String @default("") @db.VarChar(64)
+  tag               String @default("") @db.VarChar(64)
+  asset_tag         String @default("") @db.VarChar(64)
+  macaddress_a      String @default("") @db.VarChar(64)
+  macaddress_b      String @default("") @db.VarChar(64)
+  hardware          String @default("") @db.VarChar(255)
+  hardware_full     String @default("")
+  software          String @default("") @db.VarChar(255)
+  software_full     String @default("")
+  software_app_a    String @default("") @db.VarChar(64)
+  software_app_b    String @default("") @db.VarChar(64)
+  software_app_c    String @default("") @db.VarChar(64)
+  software_app_d    String @default("") @db.VarChar(64)
+  software_app_e    String @default("") @db.VarChar(64)
+  contact           String @default("")
+  location          String @default("")
+  location_lat      String @default("") @db.VarChar(16)
+  location_lon      String @default("") @db.VarChar(16)
+  notes             String @default("")
+  chassis           String @default("") @db.VarChar(64)
+  model             String @default("") @db.VarChar(64)
+  hw_arch           String @default("") @db.VarChar(32)
+  vendor            String @default("") @db.VarChar(64)
+  contract_number   String @default("") @db.VarChar(64)
+  installer_name    String @default("") @db.VarChar(64)
+  deployment_status String @default("") @db.VarChar(64)
+  url_a             String @default("") @db.VarChar(2048)
+  url_b             String @default("") @db.VarChar(2048)
+  url_c             String @default("") @db.VarChar(2048)
+  host_networks     String @default("")
+  host_netmask      String @default("") @db.VarChar(39)
+  host_router       String @default("") @db.VarChar(39)
+  oob_ip            String @default("") @db.VarChar(39)
+  oob_netmask       String @default("") @db.VarChar(39)
+  oob_router        String @default("") @db.VarChar(39)
+  date_hw_purchase  String @default("") @db.VarChar(64)
+  date_hw_install   String @default("") @db.VarChar(64)
+  date_hw_expiry    String @default("") @db.VarChar(64)
+  date_hw_decomm    String @default("") @db.VarChar(64)
+  site_address_a    String @default("") @db.VarChar(128)
+  site_address_b    String @default("") @db.VarChar(128)
+  site_address_c    String @default("") @db.VarChar(128)
+  site_city         String @default("") @db.VarChar(128)
+  site_state        String @default("") @db.VarChar(64)
+  site_country      String @default("") @db.VarChar(64)
+  site_zip          String @default("") @db.VarChar(64)
+  site_rack         String @default("") @db.VarChar(128)
+  site_notes        String @default("")
+  poc_1_name        String @default("") @db.VarChar(128)
+  poc_1_email       String @default("") @db.VarChar(128)
+  poc_1_phone_a     String @default("") @db.VarChar(64)
+  poc_1_phone_b     String @default("") @db.VarChar(64)
+  poc_1_cell        String @default("") @db.VarChar(64)
+  poc_1_screen      String @default("") @db.VarChar(64)
+  poc_1_notes       String @default("")
+  poc_2_name        String @default("") @db.VarChar(128)
+  poc_2_email       String @default("") @db.VarChar(128)
+  poc_2_phone_a     String @default("") @db.VarChar(64)
+  poc_2_phone_b     String @default("") @db.VarChar(64)
+  poc_2_cell        String @default("") @db.VarChar(64)
+  poc_2_screen      String @default("") @db.VarChar(64)
+  poc_2_notes       String @default("")
+  hosts             hosts  @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_host_inventory_1")
+}
+
+model host_proxy {
+  hostproxyid      BigInt  @id
+  hostid           BigInt? @unique(map: "host_proxy_1")
+  host             String  @default("") @db.VarChar(128)
+  proxyid          BigInt?
+  revision         Decimal @default(0) @db.Decimal(20, 0)
+  tls_accept       Int     @default(1)
+  tls_issuer       String  @default("") @db.VarChar(1024)
+  tls_subject      String  @default("") @db.VarChar(1024)
+  tls_psk_identity String  @default("") @db.VarChar(128)
+  tls_psk          String  @default("") @db.VarChar(512)
+  hosts            hosts?  @relation(fields: [hostid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_host_proxy_1")
+  proxy            proxy?  @relation(fields: [proxyid], references: [proxyid], onDelete: NoAction, onUpdate: NoAction, map: "c_host_proxy_2")
+
+  @@index([proxyid], map: "host_proxy_2")
+  @@index([revision], map: "host_proxy_3")
+}
+
+model host_rtdata {
+  hostid           BigInt @id
+  active_available Int    @default(0)
+  hosts            hosts  @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_host_rtdata_1")
+}
+
+model host_tag {
+  hosttagid BigInt @id
+  hostid    BigInt
+  tag       String @default("") @db.VarChar(255)
+  value     String @default("") @db.VarChar(255)
+  automatic Int    @default(0)
+  hosts     hosts  @relation(fields: [hostid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_host_tag_1")
+
+  @@index([hostid], map: "host_tag_1")
+}
+
+model hostmacro {
+  hostmacroid      BigInt            @id
+  hostid           BigInt
+  macro            String            @default("") @db.VarChar(255)
+  value            String            @default("") @db.VarChar(2048)
+  description      String            @default("")
+  type             Int               @default(0)
+  automatic        Int               @default(0)
+  hosts            hosts             @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_hostmacro_1")
+  hostmacro_config hostmacro_config?
+
+  @@unique([hostid, macro], map: "hostmacro_1")
+}
+
+model hostmacro_config {
+  hostmacroid  BigInt    @id
+  type         Int       @default(0)
+  priority     Int       @default(0)
+  section_name String    @default("") @db.VarChar(255)
+  label        String    @default("") @db.VarChar(255)
+  description  String    @default("")
+  required     Int       @default(0)
+  regex        String    @default("") @db.VarChar(255)
+  options      String    @default("")
+  hostmacro    hostmacro @relation(fields: [hostmacroid], references: [hostmacroid], onDelete: Cascade, onUpdate: NoAction, map: "c_hostmacro_config_1")
+}
+
+model hosts {
+  hostid                                             BigInt                    @id
+  proxyid                                            BigInt?
+  host                                               String                    @default("") @db.VarChar(128)
+  status                                             Int                       @default(0)
+  ipmi_authtype                                      Int                       @default(-1)
+  ipmi_privilege                                     Int                       @default(2)
+  ipmi_username                                      String                    @default("") @db.VarChar(16)
+  ipmi_password                                      String                    @default("") @db.VarChar(20)
+  maintenanceid                                      BigInt?
+  maintenance_status                                 Int                       @default(0)
+  maintenance_type                                   Int                       @default(0)
+  maintenance_from                                   Int                       @default(0)
+  name                                               String                    @default("") @db.VarChar(128)
+  flags                                              Int                       @default(0)
+  templateid                                         BigInt?
+  description                                        String                    @default("")
+  tls_connect                                        Int                       @default(1)
+  tls_accept                                         Int                       @default(1)
+  tls_issuer                                         String                    @default("") @db.VarChar(1024)
+  tls_subject                                        String                    @default("") @db.VarChar(1024)
+  tls_psk_identity                                   String                    @default("") @db.VarChar(128)
+  tls_psk                                            String                    @default("") @db.VarChar(512)
+  discover                                           Int                       @default(0)
+  custom_interfaces                                  Int                       @default(0)
+  uuid                                               String                    @default("") @db.VarChar(32)
+  name_upper                                         String                    @default("") @db.VarChar(128)
+  vendor_name                                        String                    @default("") @db.VarChar(64)
+  vendor_version                                     String                    @default("") @db.VarChar(32)
+  proxy_groupid                                      BigInt?
+  monitored_by                                       Int                       @default(0)
+  wizard_ready                                       Int                       @default(0)
+  readme                                             String                    @default("")
+  dashboard                                          dashboard[]
+  group_prototype                                    group_prototype[]
+  host_discovery_host_discovery_hostidTohosts        host_discovery?           @relation("host_discovery_hostidTohosts")
+  host_discovery_host_discovery_parent_hostidTohosts host_discovery[]          @relation("host_discovery_parent_hostidTohosts")
+  host_hgset                                         host_hgset?
+  host_inventory                                     host_inventory?
+  host_proxy                                         host_proxy?
+  host_rtdata                                        host_rtdata?
+  host_tag                                           host_tag[]
+  hostmacro                                          hostmacro[]
+  proxy                                              proxy?                    @relation(fields: [proxyid], references: [proxyid], onDelete: NoAction, onUpdate: NoAction, map: "c_hosts_1")
+  maintenances                                       maintenances?             @relation(fields: [maintenanceid], references: [maintenanceid], onDelete: NoAction, onUpdate: NoAction, map: "c_hosts_2")
+  hosts                                              hosts?                    @relation("hostsTohosts", fields: [templateid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_hosts_3")
+  other_hosts                                        hosts[]                   @relation("hostsTohosts")
+  proxy_group                                        proxy_group?              @relation(fields: [proxy_groupid], references: [proxy_groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_hosts_4")
+  hosts_groups                                       hosts_groups[]
+  hosts_templates_hosts_templates_hostidTohosts      hosts_templates[]         @relation("hosts_templates_hostidTohosts")
+  hosts_templates_hosts_templates_templateidTohosts  hosts_templates[]         @relation("hosts_templates_templateidTohosts")
+  httptest                                           httptest[]
+  Renamedinterface                                   Renamedinterface[]
+  items                                              items[]
+  lld_override_optemplate                            lld_override_optemplate[]
+  maintenances_hosts                                 maintenances_hosts[]
+  opcommand_hst                                      opcommand_hst[]
+  optemplate                                         optemplate[]
+  valuemap                                           valuemap[]
+  widget_field                                       widget_field[]
+
+  @@index([host], map: "hosts_1")
+  @@index([status], map: "hosts_2")
+  @@index([proxyid], map: "hosts_3")
+  @@index([name], map: "hosts_4")
+  @@index([maintenanceid], map: "hosts_5")
+  @@index([name_upper], map: "hosts_6")
+  @@index([templateid], map: "hosts_7")
+  @@index([proxy_groupid], map: "hosts_8")
+  @@index([uuid], map: "hosts_9")
+}
+
+model hosts_groups {
+  hostgroupid BigInt @id
+  hostid      BigInt
+  groupid     BigInt
+  hosts       hosts  @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_hosts_groups_1")
+  hstgrp      hstgrp @relation(fields: [groupid], references: [groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_hosts_groups_2")
+
+  @@unique([hostid, groupid], map: "hosts_groups_1")
+  @@index([groupid], map: "hosts_groups_2")
+}
+
+model hosts_templates {
+  hosttemplateid                          BigInt @id
+  hostid                                  BigInt
+  templateid                              BigInt
+  link_type                               Int    @default(0)
+  hosts_hosts_templates_hostidTohosts     hosts  @relation("hosts_templates_hostidTohosts", fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_hosts_templates_1")
+  hosts_hosts_templates_templateidTohosts hosts  @relation("hosts_templates_templateidTohosts", fields: [templateid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_hosts_templates_2")
+
+  @@unique([hostid, templateid], map: "hosts_templates_1")
+  @@index([templateid], map: "hosts_templates_2")
+}
+
+model housekeeper {
+  housekeeperid BigInt @id
+  tablename     String @default("") @db.VarChar(64)
+  field         String @default("") @db.VarChar(64)
+  value         BigInt
+}
+
+model hstgrp {
+  groupid              BigInt                 @id
+  name                 String                 @default("") @db.VarChar(255)
+  flags                Int                    @default(0)
+  uuid                 String                 @default("") @db.VarChar(32)
+  type                 Int                    @default(0)
+  corr_condition_group corr_condition_group[]
+  group_discovery      group_discovery[]
+  group_prototype      group_prototype[]
+  hgset_group          hgset_group[]
+  hosts_groups         hosts_groups[]
+  maintenances_groups  maintenances_groups[]
+  opcommand_grp        opcommand_grp[]
+  opgroup              opgroup[]
+  rights               rights[]
+  scripts              scripts[]
+  settings             settings[]
+  tag_filter           tag_filter[]
+  widget_field         widget_field[]
+
+  @@unique([type, name], map: "hstgrp_1")
+  @@index([uuid], map: "hstgrp_2")
+}
+
+model httpstep {
+  httpstepid       BigInt           @id
+  httptestid       BigInt
+  name             String           @default("") @db.VarChar(64)
+  no               Int              @default(0)
+  url              String           @default("") @db.VarChar(2048)
+  timeout          String           @default("15s") @db.VarChar(255)
+  posts            String           @default("")
+  required         String           @default("") @db.VarChar(255)
+  status_codes     String           @default("") @db.VarChar(255)
+  follow_redirects Int              @default(1)
+  retrieve_mode    Int              @default(0)
+  post_type        Int              @default(0)
+  httptest         httptest         @relation(fields: [httptestid], references: [httptestid], onDelete: NoAction, onUpdate: NoAction, map: "c_httpstep_1")
+  httpstep_field   httpstep_field[]
+  httpstepitem     httpstepitem[]
+
+  @@index([httptestid], map: "httpstep_1")
+}
+
+model httpstep_field {
+  httpstep_fieldid BigInt   @id
+  httpstepid       BigInt
+  type             Int      @default(0)
+  name             String   @default("") @db.VarChar(255)
+  value            String   @default("")
+  httpstep         httpstep @relation(fields: [httpstepid], references: [httpstepid], onDelete: NoAction, onUpdate: NoAction, map: "c_httpstep_field_1")
+
+  @@index([httpstepid], map: "httpstep_field_1")
+}
+
+model httpstepitem {
+  httpstepitemid BigInt   @id
+  httpstepid     BigInt
+  itemid         BigInt
+  type           Int      @default(0)
+  httpstep       httpstep @relation(fields: [httpstepid], references: [httpstepid], onDelete: NoAction, onUpdate: NoAction, map: "c_httpstepitem_1")
+  items          items    @relation(fields: [itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_httpstepitem_2")
+
+  @@unique([httpstepid, itemid], map: "httpstepitem_1")
+  @@index([itemid], map: "httpstepitem_2")
+}
+
+model httptest {
+  httptestid       BigInt           @id
+  name             String           @default("") @db.VarChar(64)
+  delay            String           @default("1m") @db.VarChar(255)
+  status           Int              @default(0)
+  agent            String           @default("Zabbix") @db.VarChar(255)
+  authentication   Int              @default(0)
+  http_user        String           @default("") @db.VarChar(255)
+  http_password    String           @default("") @db.VarChar(255)
+  hostid           BigInt
+  templateid       BigInt?
+  http_proxy       String           @default("") @db.VarChar(255)
+  retries          Int              @default(1)
+  ssl_cert_file    String           @default("") @db.VarChar(255)
+  ssl_key_file     String           @default("") @db.VarChar(255)
+  ssl_key_password String           @default("") @db.VarChar(64)
+  verify_peer      Int              @default(0)
+  verify_host      Int              @default(0)
+  uuid             String           @default("") @db.VarChar(32)
+  httpstep         httpstep[]
+  hosts            hosts            @relation(fields: [hostid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_httptest_2")
+  httptest         httptest?        @relation("httptestTohttptest", fields: [templateid], references: [httptestid], onDelete: NoAction, onUpdate: NoAction, map: "c_httptest_3")
+  other_httptest   httptest[]       @relation("httptestTohttptest")
+  httptest_field   httptest_field[]
+  httptest_tag     httptest_tag[]
+  httptestitem     httptestitem[]
+
+  @@unique([hostid, name], map: "httptest_2")
+  @@index([status], map: "httptest_3")
+  @@index([templateid], map: "httptest_4")
+  @@index([uuid], map: "httptest_5")
+}
+
+model httptest_field {
+  httptest_fieldid BigInt   @id
+  httptestid       BigInt
+  type             Int      @default(0)
+  name             String   @default("") @db.VarChar(255)
+  value            String   @default("")
+  httptest         httptest @relation(fields: [httptestid], references: [httptestid], onDelete: NoAction, onUpdate: NoAction, map: "c_httptest_field_1")
+
+  @@index([httptestid], map: "httptest_field_1")
+}
+
+model httptest_tag {
+  httptesttagid BigInt   @id
+  httptestid    BigInt
+  tag           String   @default("") @db.VarChar(255)
+  value         String   @default("") @db.VarChar(255)
+  httptest      httptest @relation(fields: [httptestid], references: [httptestid], onDelete: Cascade, onUpdate: NoAction, map: "c_httptest_tag_1")
+
+  @@index([httptestid], map: "httptest_tag_1")
+}
+
+model httptestitem {
+  httptestitemid BigInt   @id
+  httptestid     BigInt
+  itemid         BigInt
+  type           Int      @default(0)
+  httptest       httptest @relation(fields: [httptestid], references: [httptestid], onDelete: NoAction, onUpdate: NoAction, map: "c_httptestitem_1")
+  items          items    @relation(fields: [itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_httptestitem_2")
+
+  @@unique([httptestid, itemid], map: "httptestitem_1")
+  @@index([itemid], map: "httptestitem_2")
+}
+
+model icon_map {
+  iconmapid      BigInt         @id
+  name           String         @unique(map: "icon_map_1") @default("") @db.VarChar(64)
+  default_iconid BigInt
+  images         images         @relation(fields: [default_iconid], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_icon_map_1")
+  icon_mapping   icon_mapping[]
+  sysmaps        sysmaps[]
+
+  @@index([default_iconid], map: "icon_map_2")
+}
+
+model icon_mapping {
+  iconmappingid  BigInt   @id
+  iconmapid      BigInt
+  iconid         BigInt
+  inventory_link Int      @default(0)
+  expression     String   @default("") @db.VarChar(64)
+  sortorder      Int      @default(0)
+  icon_map       icon_map @relation(fields: [iconmapid], references: [iconmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_icon_mapping_1")
+  images         images   @relation(fields: [iconid], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_icon_mapping_2")
+
+  @@index([iconmapid], map: "icon_mapping_1")
+  @@index([iconid], map: "icon_mapping_2")
+}
+
+model ids {
+  table_name String @default("") @db.VarChar(64)
+  field_name String @default("") @db.VarChar(64)
+  nextid     BigInt
+
+  @@id([table_name, field_name])
+}
+
+model images {
+  imageid                                                      BigInt             @id
+  imagetype                                                    Int                @default(0)
+  name                                                         String             @unique(map: "images_1") @default("0") @db.VarChar(64)
+  image                                                        Bytes              @default("")
+  icon_map                                                     icon_map[]
+  icon_mapping                                                 icon_mapping[]
+  sysmaps                                                      sysmaps[]
+  sysmaps_elements_sysmaps_elements_iconid_offToimages         sysmaps_elements[] @relation("sysmaps_elements_iconid_offToimages")
+  sysmaps_elements_sysmaps_elements_iconid_onToimages          sysmaps_elements[] @relation("sysmaps_elements_iconid_onToimages")
+  sysmaps_elements_sysmaps_elements_iconid_disabledToimages    sysmaps_elements[] @relation("sysmaps_elements_iconid_disabledToimages")
+  sysmaps_elements_sysmaps_elements_iconid_maintenanceToimages sysmaps_elements[] @relation("sysmaps_elements_iconid_maintenanceToimages")
+}
+
+/// This model has been renamed to 'Renamedinterface' during introspection, because the original name 'interface' is reserved.
+model Renamedinterface {
+  interfaceid                                                                  BigInt                @id
+  hostid                                                                       BigInt
+  main                                                                         Int                   @default(0)
+  type                                                                         Int                   @default(1)
+  useip                                                                        Int                   @default(1)
+  ip                                                                           String                @default("127.0.0.1") @db.VarChar(64)
+  dns                                                                          String                @default("") @db.VarChar(255)
+  port                                                                         String                @default("10050") @db.VarChar(64)
+  available                                                                    Int                   @default(0)
+  error                                                                        String                @default("") @db.VarChar(2048)
+  errors_from                                                                  Int                   @default(0)
+  disable_until                                                                Int                   @default(0)
+  hosts                                                                        hosts                 @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_interface_1")
+  interface_discovery_interface_discovery_interfaceidToRenamedinterface        interface_discovery?  @relation("interface_discovery_interfaceidToRenamedinterface")
+  interface_discovery_interface_discovery_parent_interfaceidToRenamedinterface interface_discovery[] @relation("interface_discovery_parent_interfaceidToRenamedinterface")
+  interface_snmp                                                               interface_snmp?
+  items                                                                        items[]
+
+  @@index([hostid, type], map: "interface_1")
+  @@index([ip, dns], map: "interface_2")
+  @@index([available], map: "interface_3")
+  @@map("interface")
+}
+
+model interface_discovery {
+  interfaceid                                                               BigInt           @id
+  parent_interfaceid                                                        BigInt
+  Renamedinterface_interface_discovery_interfaceidToRenamedinterface        Renamedinterface @relation("interface_discovery_interfaceidToRenamedinterface", fields: [interfaceid], references: [interfaceid], onDelete: Cascade, onUpdate: NoAction, map: "c_interface_discovery_1")
+  Renamedinterface_interface_discovery_parent_interfaceidToRenamedinterface Renamedinterface @relation("interface_discovery_parent_interfaceidToRenamedinterface", fields: [parent_interfaceid], references: [interfaceid], onDelete: Cascade, onUpdate: NoAction, map: "c_interface_discovery_2")
+
+  @@index([parent_interfaceid], map: "interface_discovery_1")
+}
+
+model interface_snmp {
+  interfaceid      BigInt           @id
+  version          Int              @default(2)
+  bulk             Int              @default(1)
+  community        String           @default("") @db.VarChar(64)
+  securityname     String           @default("") @db.VarChar(64)
+  securitylevel    Int              @default(0)
+  authpassphrase   String           @default("") @db.VarChar(64)
+  privpassphrase   String           @default("") @db.VarChar(64)
+  authprotocol     Int              @default(0)
+  privprotocol     Int              @default(0)
+  contextname      String           @default("") @db.VarChar(255)
+  max_repetitions  Int              @default(10)
+  Renamedinterface Renamedinterface @relation(fields: [interfaceid], references: [interfaceid], onDelete: Cascade, onUpdate: NoAction, map: "c_interface_snmp_1")
+}
+
+model item_condition {
+  item_conditionid BigInt @id
+  itemid           BigInt
+  operator         Int    @default(8)
+  macro            String @default("") @db.VarChar(64)
+  value            String @default("") @db.VarChar(255)
+  items            items  @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_item_condition_1")
+
+  @@index([itemid], map: "item_condition_1")
+}
+
+model item_discovery {
+  itemdiscoveryid                           BigInt  @id
+  itemid                                    BigInt
+  parent_itemid                             BigInt?
+  key_                                      String  @default("") @db.VarChar(2048)
+  lastcheck                                 Int     @default(0)
+  ts_delete                                 Int     @default(0)
+  status                                    Int     @default(0)
+  disable_source                            Int     @default(0)
+  ts_disable                                Int     @default(0)
+  lldruleid                                 BigInt?
+  items_item_discovery_itemidToitems        items   @relation("item_discovery_itemidToitems", fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_item_discovery_1")
+  items_item_discovery_parent_itemidToitems items?  @relation("item_discovery_parent_itemidToitems", fields: [parent_itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_item_discovery_2")
+  items_item_discovery_lldruleidToitems     items?  @relation("item_discovery_lldruleidToitems", fields: [lldruleid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_item_discovery_3")
+
+  @@unique([itemid, parent_itemid], map: "item_discovery_1")
+  @@index([parent_itemid], map: "item_discovery_2")
+  @@index([lldruleid], map: "item_discovery_3")
+}
+
+model item_parameter {
+  item_parameterid BigInt @id
+  itemid           BigInt
+  name             String @default("") @db.VarChar(255)
+  value            String @default("") @db.VarChar(2048)
+  items            items  @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_item_parameter_1")
+
+  @@index([itemid], map: "item_parameter_1")
+}
+
+model item_preproc {
+  item_preprocid       BigInt @id
+  itemid               BigInt
+  step                 Int    @default(0)
+  type                 Int    @default(0)
+  params               String @default("")
+  error_handler        Int    @default(0)
+  error_handler_params String @default("") @db.VarChar(255)
+  items                items  @relation(fields: [itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_item_preproc_1")
+
+  @@index([itemid, step], map: "item_preproc_1")
+}
+
+model item_rtdata {
+  itemid      BigInt  @id
+  lastlogsize Decimal @default(0) @db.Decimal(20, 0)
+  state       Int     @default(0)
+  mtime       Int     @default(0)
+  error       String  @default("") @db.VarChar(2048)
+  items       items   @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_item_rtdata_1")
+}
+
+model item_rtname {
+  itemid              BigInt @id
+  name_resolved       String @default("") @db.VarChar(2048)
+  name_resolved_upper String @default("") @db.VarChar(2048)
+  items               items  @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_item_rtname_1")
+}
+
+model item_tag {
+  itemtagid BigInt @id
+  itemid    BigInt
+  tag       String @default("") @db.VarChar(255)
+  value     String @default("") @db.VarChar(255)
+  items     items  @relation(fields: [itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_item_tag_1")
+
+  @@index([itemid], map: "item_tag_1")
+}
+
+model items {
+  itemid                                             BigInt             @id
+  type                                               Int                @default(0)
+  snmp_oid                                           String             @default("") @db.VarChar(512)
+  hostid                                             BigInt
+  name                                               String             @default("") @db.VarChar(255)
+  key_                                               String             @default("") @db.VarChar(2048)
+  delay                                              String             @default("0") @db.VarChar(1024)
+  history                                            String             @default("31d") @db.VarChar(255)
+  trends                                             String             @default("365d") @db.VarChar(255)
+  status                                             Int                @default(0)
+  value_type                                         Int                @default(0)
+  trapper_hosts                                      String             @default("") @db.VarChar(255)
+  units                                              String             @default("") @db.VarChar(255)
+  formula                                            String             @default("") @db.VarChar(255)
+  logtimefmt                                         String             @default("") @db.VarChar(64)
+  templateid                                         BigInt?
+  valuemapid                                         BigInt?
+  params                                             String             @default("")
+  ipmi_sensor                                        String             @default("") @db.VarChar(128)
+  authtype                                           Int                @default(0)
+  username                                           String             @default("") @db.VarChar(255)
+  password                                           String             @default("") @db.VarChar(255)
+  publickey                                          String             @default("") @db.VarChar(64)
+  privatekey                                         String             @default("") @db.VarChar(64)
+  flags                                              Int                @default(0)
+  interfaceid                                        BigInt?
+  description                                        String             @default("")
+  inventory_link                                     Int                @default(0)
+  lifetime                                           String             @default("7d") @db.VarChar(255)
+  evaltype                                           Int                @default(0)
+  jmx_endpoint                                       String             @default("") @db.VarChar(255)
+  master_itemid                                      BigInt?
+  timeout                                            String             @default("") @db.VarChar(255)
+  url                                                String             @default("") @db.VarChar(2048)
+  query_fields                                       String             @default("")
+  posts                                              String             @default("")
+  status_codes                                       String             @default("200") @db.VarChar(255)
+  follow_redirects                                   Int                @default(1)
+  post_type                                          Int                @default(0)
+  http_proxy                                         String             @default("") @db.VarChar(255)
+  headers                                            String             @default("")
+  retrieve_mode                                      Int                @default(0)
+  request_method                                     Int                @default(0)
+  output_format                                      Int                @default(0)
+  ssl_cert_file                                      String             @default("") @db.VarChar(255)
+  ssl_key_file                                       String             @default("") @db.VarChar(255)
+  ssl_key_password                                   String             @default("") @db.VarChar(64)
+  verify_peer                                        Int                @default(0)
+  verify_host                                        Int                @default(0)
+  allow_traps                                        Int                @default(0)
+  discover                                           Int                @default(0)
+  uuid                                               String             @default("") @db.VarChar(32)
+  lifetime_type                                      Int                @default(0)
+  enabled_lifetime_type                              Int                @default(2)
+  enabled_lifetime                                   String             @default("0") @db.VarChar(255)
+  functions                                          functions[]
+  graphs_graphs_ymin_itemidToitems                   graphs[]           @relation("graphs_ymin_itemidToitems")
+  graphs_graphs_ymax_itemidToitems                   graphs[]           @relation("graphs_ymax_itemidToitems")
+  graphs_items                                       graphs_items[]
+  host_discovery                                     host_discovery[]
+  httpstepitem                                       httpstepitem[]
+  httptestitem                                       httptestitem[]
+  item_condition                                     item_condition[]
+  item_discovery_item_discovery_itemidToitems        item_discovery[]   @relation("item_discovery_itemidToitems")
+  item_discovery_item_discovery_parent_itemidToitems item_discovery[]   @relation("item_discovery_parent_itemidToitems")
+  item_discovery_item_discovery_lldruleidToitems     item_discovery[]   @relation("item_discovery_lldruleidToitems")
+  item_parameter                                     item_parameter[]
+  item_preproc                                       item_preproc[]
+  item_rtdata                                        item_rtdata?
+  item_rtname                                        item_rtname?
+  item_tag                                           item_tag[]
+  hosts                                              hosts              @relation(fields: [hostid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_items_1")
+  items_items_templateidToitems                      items?             @relation("items_templateidToitems", fields: [templateid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_items_2")
+  other_items_items_templateidToitems                items[]            @relation("items_templateidToitems")
+  valuemap                                           valuemap?          @relation(fields: [valuemapid], references: [valuemapid], onDelete: NoAction, onUpdate: NoAction, map: "c_items_3")
+  Renamedinterface                                   Renamedinterface?  @relation(fields: [interfaceid], references: [interfaceid], onDelete: NoAction, onUpdate: NoAction, map: "c_items_4")
+  items_items_master_itemidToitems                   items?             @relation("items_master_itemidToitems", fields: [master_itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_items_5")
+  other_items_items_master_itemidToitems             items[]            @relation("items_master_itemidToitems")
+  lld_macro_export                                   lld_macro_export[]
+  lld_macro_path                                     lld_macro_path[]
+  lld_override                                       lld_override[]
+  sysmaps_links                                      sysmaps_links[]
+  widget_field                                       widget_field[]
+
+  @@index([hostid, key_], map: "items_1")
+  @@index([uuid], map: "items_10")
+  @@index([status], map: "items_3")
+  @@index([templateid], map: "items_4")
+  @@index([valuemapid], map: "items_5")
+  @@index([interfaceid], map: "items_6")
+  @@index([master_itemid], map: "items_7")
+  @@index([key_], map: "items_8")
+}
+
+model lld_macro_export {
+  lld_macro_exportid BigInt @id
+  itemid             BigInt
+  lld_macro          String @default("") @db.VarChar(255)
+  value              String @default("")
+  items              items  @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_macro_export_1")
+
+  @@index([itemid], map: "lld_macro_export_1")
+}
+
+model lld_macro_path {
+  lld_macro_pathid BigInt @id
+  itemid           BigInt
+  lld_macro        String @default("") @db.VarChar(255)
+  path             String @default("") @db.VarChar(255)
+  items            items  @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_macro_path_1")
+
+  @@unique([itemid, lld_macro], map: "lld_macro_path_1")
+}
+
+model lld_override {
+  lld_overrideid         BigInt                   @id
+  itemid                 BigInt
+  name                   String                   @default("") @db.VarChar(255)
+  step                   Int                      @default(0)
+  evaltype               Int                      @default(0)
+  formula                String                   @default("") @db.VarChar(255)
+  stop                   Int                      @default(0)
+  items                  items                    @relation(fields: [itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_1")
+  lld_override_condition lld_override_condition[]
+  lld_override_operation lld_override_operation[]
+
+  @@unique([itemid, name], map: "lld_override_1")
+}
+
+model lld_override_condition {
+  lld_override_conditionid BigInt       @id
+  lld_overrideid           BigInt
+  operator                 Int          @default(8)
+  macro                    String       @default("") @db.VarChar(64)
+  value                    String       @default("") @db.VarChar(255)
+  lld_override             lld_override @relation(fields: [lld_overrideid], references: [lld_overrideid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_condition_1")
+
+  @@index([lld_overrideid], map: "lld_override_condition_1")
+}
+
+model lld_override_opdiscover {
+  lld_override_operationid BigInt                 @id
+  discover                 Int                    @default(0)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_opdiscover_1")
+}
+
+model lld_override_operation {
+  lld_override_operationid BigInt                    @id
+  lld_overrideid           BigInt
+  operationobject          Int                       @default(0)
+  operator                 Int                       @default(0)
+  value                    String                    @default("") @db.VarChar(255)
+  lld_override_opdiscover  lld_override_opdiscover?
+  lld_override             lld_override              @relation(fields: [lld_overrideid], references: [lld_overrideid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_operation_1")
+  lld_override_ophistory   lld_override_ophistory?
+  lld_override_opinventory lld_override_opinventory?
+  lld_override_opperiod    lld_override_opperiod?
+  lld_override_opseverity  lld_override_opseverity?
+  lld_override_opstatus    lld_override_opstatus?
+  lld_override_optag       lld_override_optag[]
+  lld_override_optemplate  lld_override_optemplate[]
+  lld_override_optrends    lld_override_optrends?
+
+  @@index([lld_overrideid], map: "lld_override_operation_1")
+}
+
+model lld_override_ophistory {
+  lld_override_operationid BigInt                 @id
+  history                  String                 @default("31d") @db.VarChar(255)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_ophistory_1")
+}
+
+model lld_override_opinventory {
+  lld_override_operationid BigInt                 @id
+  inventory_mode           Int                    @default(0)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_opinventory_1")
+}
+
+model lld_override_opperiod {
+  lld_override_operationid BigInt                 @id
+  delay                    String                 @default("0") @db.VarChar(1024)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_opperiod_1")
+}
+
+model lld_override_opseverity {
+  lld_override_operationid BigInt                 @id
+  severity                 Int                    @default(0)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_opseverity_1")
+}
+
+model lld_override_opstatus {
+  lld_override_operationid BigInt                 @id
+  status                   Int                    @default(0)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_opstatus_1")
+}
+
+model lld_override_optag {
+  lld_override_optagid     BigInt                 @id
+  lld_override_operationid BigInt
+  tag                      String                 @default("") @db.VarChar(255)
+  value                    String                 @default("") @db.VarChar(255)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_optag_1")
+
+  @@index([lld_override_operationid], map: "lld_override_optag_1")
+}
+
+model lld_override_optemplate {
+  lld_override_optemplateid BigInt                 @id
+  lld_override_operationid  BigInt
+  templateid                BigInt
+  lld_override_operation    lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_optemplate_1")
+  hosts                     hosts                  @relation(fields: [templateid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_lld_override_optemplate_2")
+
+  @@unique([lld_override_operationid, templateid], map: "lld_override_optemplate_1")
+  @@index([templateid], map: "lld_override_optemplate_2")
+}
+
+model lld_override_optrends {
+  lld_override_operationid BigInt                 @id
+  trends                   String                 @default("365d") @db.VarChar(255)
+  lld_override_operation   lld_override_operation @relation(fields: [lld_override_operationid], references: [lld_override_operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_lld_override_optrends_1")
+}
+
+model maintenance_tag {
+  maintenancetagid BigInt       @id
+  maintenanceid    BigInt
+  tag              String       @default("") @db.VarChar(255)
+  operator         Int          @default(2)
+  value            String       @default("") @db.VarChar(255)
+  maintenances     maintenances @relation(fields: [maintenanceid], references: [maintenanceid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenance_tag_1")
+
+  @@index([maintenanceid], map: "maintenance_tag_1")
+}
+
+model maintenances {
+  maintenanceid        BigInt                 @id
+  name                 String                 @unique(map: "maintenances_2") @default("") @db.VarChar(128)
+  maintenance_type     Int                    @default(0)
+  description          String                 @default("")
+  active_since         Int                    @default(0)
+  active_till          Int                    @default(0)
+  tags_evaltype        Int                    @default(0)
+  event_suppress       event_suppress[]
+  hosts                hosts[]
+  maintenance_tag      maintenance_tag[]
+  maintenances_groups  maintenances_groups[]
+  maintenances_hosts   maintenances_hosts[]
+  maintenances_windows maintenances_windows[]
+
+  @@index([active_since, active_till], map: "maintenances_1")
+}
+
+model maintenances_groups {
+  maintenance_groupid BigInt       @id
+  maintenanceid       BigInt
+  groupid             BigInt
+  maintenances        maintenances @relation(fields: [maintenanceid], references: [maintenanceid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenances_groups_1")
+  hstgrp              hstgrp       @relation(fields: [groupid], references: [groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenances_groups_2")
+
+  @@unique([maintenanceid, groupid], map: "maintenances_groups_1")
+  @@index([groupid], map: "maintenances_groups_2")
+}
+
+model maintenances_hosts {
+  maintenance_hostid BigInt       @id
+  maintenanceid      BigInt
+  hostid             BigInt
+  maintenances       maintenances @relation(fields: [maintenanceid], references: [maintenanceid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenances_hosts_1")
+  hosts              hosts        @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenances_hosts_2")
+
+  @@unique([maintenanceid, hostid], map: "maintenances_hosts_1")
+  @@index([hostid], map: "maintenances_hosts_2")
+}
+
+model maintenances_windows {
+  maintenance_timeperiodid BigInt       @id
+  maintenanceid            BigInt
+  timeperiodid             BigInt
+  maintenances             maintenances @relation(fields: [maintenanceid], references: [maintenanceid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenances_windows_1")
+  timeperiods              timeperiods  @relation(fields: [timeperiodid], references: [timeperiodid], onDelete: Cascade, onUpdate: NoAction, map: "c_maintenances_windows_2")
+
+  @@unique([maintenanceid, timeperiodid], map: "maintenances_windows_1")
+  @@index([timeperiodid], map: "maintenances_windows_2")
+}
+
+model media {
+  mediaid               BigInt               @id
+  userid                BigInt
+  mediatypeid           BigInt
+  sendto                String               @default("") @db.VarChar(1024)
+  active                Int                  @default(0)
+  severity              Int                  @default(63)
+  period                String               @default("1-7,00:00-24:00") @db.VarChar(1024)
+  userdirectory_mediaid BigInt?
+  users                 users                @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_media_1")
+  media_type            media_type           @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_media_2")
+  userdirectory_media   userdirectory_media? @relation(fields: [userdirectory_mediaid], references: [userdirectory_mediaid], onDelete: Cascade, onUpdate: NoAction, map: "c_media_3")
+
+  @@index([userid], map: "media_1")
+  @@index([mediatypeid], map: "media_2")
+  @@index([userdirectory_mediaid], map: "media_3")
+}
+
+model media_type {
+  mediatypeid         BigInt                @id
+  type                Int                   @default(0)
+  name                String                @unique(map: "media_type_1") @default("") @db.VarChar(100)
+  smtp_server         String                @default("") @db.VarChar(255)
+  smtp_helo           String                @default("") @db.VarChar(255)
+  smtp_email          String                @default("") @db.VarChar(255)
+  exec_path           String                @default("") @db.VarChar(255)
+  gsm_modem           String                @default("") @db.VarChar(255)
+  username            String                @default("") @db.VarChar(255)
+  passwd              String                @default("") @db.VarChar(255)
+  status              Int                   @default(1)
+  smtp_port           Int                   @default(25)
+  smtp_security       Int                   @default(0)
+  smtp_verify_peer    Int                   @default(0)
+  smtp_verify_host    Int                   @default(0)
+  smtp_authentication Int                   @default(0)
+  maxsessions         Int                   @default(1)
+  maxattempts         Int                   @default(3)
+  attempt_interval    String                @default("10s") @db.VarChar(32)
+  message_format      Int                   @default(1)
+  script              String                @default("")
+  timeout             String                @default("30s") @db.VarChar(32)
+  process_tags        Int                   @default(0)
+  show_event_menu     Int                   @default(0)
+  event_menu_url      String                @default("") @db.VarChar(2048)
+  event_menu_name     String                @default("") @db.VarChar(255)
+  description         String                @default("")
+  provider            Int                   @default(0)
+  alerts              alerts[]
+  media               media[]
+  media_type_message  media_type_message[]
+  media_type_oauth    media_type_oauth?
+  media_type_param    media_type_param[]
+  opmessage           opmessage[]
+  userdirectory_media userdirectory_media[]
+  widget_field        widget_field[]
+}
+
+model media_type_message {
+  mediatype_messageid BigInt     @id
+  mediatypeid         BigInt
+  eventsource         Int
+  recovery            Int
+  subject             String     @default("") @db.VarChar(255)
+  message             String     @default("")
+  media_type          media_type @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_media_type_message_1")
+
+  @@unique([mediatypeid, eventsource, recovery], map: "media_type_message_1")
+}
+
+model media_type_oauth {
+  mediatypeid          BigInt     @id
+  redirection_url      String     @default("") @db.VarChar(2048)
+  client_id            String     @default("") @db.VarChar(255)
+  client_secret        String     @default("") @db.VarChar(255)
+  authorization_url    String     @default("") @db.VarChar(2048)
+  tokens_status        Int        @default(0)
+  access_token         String     @default("")
+  access_token_updated Int        @default(0)
+  access_expires_in    Int        @default(0)
+  refresh_token        String     @default("")
+  token_url            String     @default("") @db.VarChar(2048)
+  media_type           media_type @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_media_type_oauth_1")
+}
+
+model media_type_param {
+  mediatype_paramid BigInt     @id
+  mediatypeid       BigInt
+  name              String     @default("") @db.VarChar(255)
+  value             String     @default("") @db.VarChar(2048)
+  sortorder         Int        @default(0)
+  media_type        media_type @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_media_type_param_1")
+
+  @@index([mediatypeid], map: "media_type_param_1")
+}
+
+model mfa {
+  mfaid           BigInt            @id
+  type            Int               @default(0)
+  name            String            @unique(map: "mfa_1") @default("") @db.VarChar(128)
+  hash_function   Int?              @default(1)
+  code_length     Int?              @default(6)
+  api_hostname    String?           @default("") @db.VarChar(1024)
+  clientid        String?           @default("") @db.VarChar(32)
+  client_secret   String?           @default("") @db.VarChar(64)
+  mfa_totp_secret mfa_totp_secret[]
+  settings        settings[]
+  usrgrp          usrgrp[]
+}
+
+model mfa_totp_secret {
+  mfa_totp_secretid BigInt  @id
+  mfaid             BigInt
+  userid            BigInt
+  totp_secret       String? @default("") @db.VarChar(32)
+  status            Int     @default(0)
+  used_codes        String  @default("") @db.VarChar(32)
+  mfa               mfa     @relation(fields: [mfaid], references: [mfaid], onDelete: Cascade, onUpdate: NoAction, map: "c_mfa_totp_secret_1")
+  users             users   @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_mfa_totp_secret_2")
+
+  @@index([mfaid], map: "mfa_totp_secret_1")
+  @@index([userid], map: "mfa_totp_secret_2")
+}
+
+model module {
+  moduleid      BigInt      @id
+  id            String      @default("") @db.VarChar(255)
+  relative_path String      @default("") @db.VarChar(255)
+  status        Int         @default(0)
+  config        String      @default("")
+  role_rule     role_rule[]
+}
+
+model opcommand {
+  operationid BigInt     @id
+  scriptid    BigInt
+  operations  operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opcommand_1")
+  scripts     scripts    @relation(fields: [scriptid], references: [scriptid], onDelete: NoAction, onUpdate: NoAction, map: "c_opcommand_2")
+
+  @@index([scriptid], map: "opcommand_1")
+}
+
+model opcommand_grp {
+  opcommand_grpid BigInt     @id
+  operationid     BigInt
+  groupid         BigInt
+  operations      operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opcommand_grp_1")
+  hstgrp          hstgrp     @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_opcommand_grp_2")
+
+  @@index([operationid], map: "opcommand_grp_1")
+  @@index([groupid], map: "opcommand_grp_2")
+}
+
+model opcommand_hst {
+  opcommand_hstid BigInt     @id
+  operationid     BigInt
+  hostid          BigInt?
+  operations      operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opcommand_hst_1")
+  hosts           hosts?     @relation(fields: [hostid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_opcommand_hst_2")
+
+  @@index([operationid], map: "opcommand_hst_1")
+  @@index([hostid], map: "opcommand_hst_2")
+}
+
+model opconditions {
+  opconditionid BigInt     @id
+  operationid   BigInt
+  conditiontype Int        @default(0)
+  operator      Int        @default(0)
+  value         String     @default("") @db.VarChar(255)
+  operations    operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opconditions_1")
+
+  @@index([operationid], map: "opconditions_1")
+}
+
+model operations {
+  operationid   BigInt          @id
+  actionid      BigInt
+  operationtype Int             @default(0)
+  esc_period    String          @default("0") @db.VarChar(255)
+  esc_step_from Int             @default(1)
+  esc_step_to   Int             @default(1)
+  evaltype      Int             @default(0)
+  recovery      Int             @default(0)
+  opcommand     opcommand?
+  opcommand_grp opcommand_grp[]
+  opcommand_hst opcommand_hst[]
+  opconditions  opconditions[]
+  actions       actions         @relation(fields: [actionid], references: [actionid], onDelete: Cascade, onUpdate: NoAction, map: "c_operations_1")
+  opgroup       opgroup[]
+  opinventory   opinventory?
+  opmessage     opmessage?
+  opmessage_grp opmessage_grp[]
+  opmessage_usr opmessage_usr[]
+  optag         optag[]
+  optemplate    optemplate[]
+
+  @@index([actionid], map: "operations_1")
+}
+
+model opgroup {
+  opgroupid   BigInt     @id
+  operationid BigInt
+  groupid     BigInt
+  operations  operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opgroup_1")
+  hstgrp      hstgrp     @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_opgroup_2")
+
+  @@unique([operationid, groupid], map: "opgroup_1")
+  @@index([groupid], map: "opgroup_2")
+}
+
+model opinventory {
+  operationid    BigInt     @id
+  inventory_mode Int        @default(0)
+  operations     operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opinventory_1")
+}
+
+model opmessage {
+  operationid BigInt      @id
+  default_msg Int         @default(1)
+  subject     String      @default("") @db.VarChar(255)
+  message     String      @default("")
+  mediatypeid BigInt?
+  operations  operations  @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opmessage_1")
+  media_type  media_type? @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: NoAction, onUpdate: NoAction, map: "c_opmessage_2")
+
+  @@index([mediatypeid], map: "opmessage_1")
+}
+
+model opmessage_grp {
+  opmessage_grpid BigInt     @id
+  operationid     BigInt
+  usrgrpid        BigInt
+  operations      operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opmessage_grp_1")
+  usrgrp          usrgrp     @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: NoAction, onUpdate: NoAction, map: "c_opmessage_grp_2")
+
+  @@unique([operationid, usrgrpid], map: "opmessage_grp_1")
+  @@index([usrgrpid], map: "opmessage_grp_2")
+}
+
+model opmessage_usr {
+  opmessage_usrid BigInt     @id
+  operationid     BigInt
+  userid          BigInt
+  operations      operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_opmessage_usr_1")
+  users           users      @relation(fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "c_opmessage_usr_2")
+
+  @@unique([operationid, userid], map: "opmessage_usr_1")
+  @@index([userid], map: "opmessage_usr_2")
+}
+
+model optag {
+  optagid     BigInt     @id
+  operationid BigInt
+  tag         String     @default("") @db.VarChar(255)
+  value       String     @default("") @db.VarChar(255)
+  operations  operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_optag_1")
+
+  @@index([operationid], map: "optag_1")
+}
+
+model optemplate {
+  optemplateid BigInt     @id
+  operationid  BigInt
+  templateid   BigInt
+  operations   operations @relation(fields: [operationid], references: [operationid], onDelete: Cascade, onUpdate: NoAction, map: "c_optemplate_1")
+  hosts        hosts      @relation(fields: [templateid], references: [hostid], onDelete: NoAction, onUpdate: NoAction, map: "c_optemplate_2")
+
+  @@unique([operationid, templateid], map: "optemplate_1")
+  @@index([templateid], map: "optemplate_2")
+}
+
+model permission {
+  ugsetid    BigInt
+  hgsetid    BigInt
+  permission Int    @default(2)
+  ugset      ugset  @relation(fields: [ugsetid], references: [ugsetid], onDelete: Cascade, onUpdate: NoAction, map: "c_permission_1")
+  hgset      hgset  @relation(fields: [hgsetid], references: [hgsetid], onDelete: Cascade, onUpdate: NoAction, map: "c_permission_2")
+
+  @@id([ugsetid, hgsetid])
+  @@index([hgsetid], map: "permission_1")
+}
+
+model problem {
+  eventid                              BigInt            @id
+  source                               Int               @default(0)
+  object                               Int               @default(0)
+  objectid                             BigInt            @default(0)
+  clock                                Int               @default(0)
+  ns                                   Int               @default(0)
+  r_eventid                            BigInt?
+  r_clock                              Int               @default(0)
+  r_ns                                 Int               @default(0)
+  correlationid                        BigInt?
+  userid                               BigInt?
+  name                                 String            @default("") @db.VarChar(2048)
+  acknowledged                         Int               @default(0)
+  severity                             Int               @default(0)
+  cause_eventid                        BigInt?
+  events_problem_eventidToevents       events            @relation("problem_eventidToevents", fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_problem_1")
+  events_problem_r_eventidToevents     events?           @relation("problem_r_eventidToevents", fields: [r_eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_problem_2")
+  events_problem_cause_eventidToevents events?           @relation("problem_cause_eventidToevents", fields: [cause_eventid], references: [eventid], onDelete: NoAction, onUpdate: NoAction, map: "c_problem_3")
+  problem_tag                          problem_tag[]
+  service_problem                      service_problem[]
+
+  @@index([source, object, objectid], map: "problem_1")
+  @@index([r_clock], map: "problem_2")
+  @@index([r_eventid], map: "problem_3")
+  @@index([cause_eventid], map: "problem_4")
+}
+
+model problem_tag {
+  problemtagid BigInt  @id
+  eventid      BigInt
+  tag          String  @default("") @db.VarChar(255)
+  value        String  @default("") @db.VarChar(255)
+  problem      problem @relation(fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_problem_tag_1")
+
+  @@index([eventid, tag, value], map: "problem_tag_1")
+}
+
+model profiles {
+  profileid BigInt @id
+  userid    BigInt
+  idx       String @default("") @db.VarChar(96)
+  idx2      BigInt @default(0)
+  value_id  BigInt @default(0)
+  value_int Int    @default(0)
+  value_str String @default("")
+  source    String @default("") @db.VarChar(96)
+  type      Int    @default(0)
+  users     users  @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_profiles_1")
+
+  @@index([userid, idx, idx2], map: "profiles_1")
+  @@index([userid, profileid], map: "profiles_2")
+}
+
+model proxy {
+  proxyid                BigInt         @id
+  name                   String         @unique(map: "proxy_1") @default("") @db.VarChar(128)
+  operating_mode         Int            @default(0)
+  description            String         @default("")
+  tls_connect            Int            @default(1)
+  tls_accept             Int            @default(1)
+  tls_issuer             String         @default("") @db.VarChar(1024)
+  tls_subject            String         @default("") @db.VarChar(1024)
+  tls_psk_identity       String         @default("") @db.VarChar(128)
+  tls_psk                String         @default("") @db.VarChar(512)
+  allowed_addresses      String         @default("") @db.VarChar(255)
+  address                String         @default("127.0.0.1") @db.VarChar(255)
+  port                   String         @default("10051") @db.VarChar(64)
+  custom_timeouts        Int            @default(0)
+  timeout_zabbix_agent   String         @default("") @db.VarChar(255)
+  timeout_simple_check   String         @default("") @db.VarChar(255)
+  timeout_snmp_agent     String         @default("") @db.VarChar(255)
+  timeout_external_check String         @default("") @db.VarChar(255)
+  timeout_db_monitor     String         @default("") @db.VarChar(255)
+  timeout_http_agent     String         @default("") @db.VarChar(255)
+  timeout_ssh_agent      String         @default("") @db.VarChar(255)
+  timeout_telnet_agent   String         @default("") @db.VarChar(255)
+  timeout_script         String         @default("") @db.VarChar(255)
+  local_address          String         @default("") @db.VarChar(255)
+  local_port             String         @default("10051") @db.VarChar(64)
+  proxy_groupid          BigInt?
+  timeout_browser        String         @default("") @db.VarChar(255)
+  autoreg_host           autoreg_host[]
+  drules                 drules[]
+  host_proxy             host_proxy[]
+  hosts                  hosts[]
+  proxy_group            proxy_group?   @relation(fields: [proxy_groupid], references: [proxy_groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_proxy_1")
+  proxy_rtdata           proxy_rtdata?
+  task                   task[]
+
+  @@index([proxy_groupid], map: "proxy_2")
+}
+
+model proxy_autoreg_host {
+  id            BigInt @id
+  clock         Int    @default(0)
+  host          String @default("") @db.VarChar(128)
+  listen_ip     String @default("") @db.VarChar(39)
+  listen_port   Int    @default(0)
+  listen_dns    String @default("") @db.VarChar(255)
+  host_metadata String @default("")
+  flags         Int    @default(0)
+  tls_accepted  Int    @default(1)
+
+  @@index([clock], map: "proxy_autoreg_host_1")
+}
+
+model proxy_dhistory {
+  id       BigInt  @id
+  clock    Int     @default(0)
+  druleid  BigInt
+  ip       String  @default("") @db.VarChar(39)
+  port     Int     @default(0)
+  value    String  @default("") @db.VarChar(255)
+  status   Int     @default(0)
+  dcheckid BigInt?
+  dns      String  @default("") @db.VarChar(255)
+  error    String  @default("") @db.VarChar(2048)
+
+  @@index([clock], map: "proxy_dhistory_1")
+  @@index([druleid], map: "proxy_dhistory_2")
+}
+
+model proxy_group {
+  proxy_groupid      BigInt              @id
+  name               String              @default("") @db.VarChar(255)
+  description        String              @default("")
+  failover_delay     String              @default("1m") @db.VarChar(255)
+  min_online         String              @default("1") @db.VarChar(255)
+  hosts              hosts[]
+  proxy              proxy[]
+  proxy_group_rtdata proxy_group_rtdata?
+}
+
+model proxy_group_rtdata {
+  proxy_groupid BigInt      @id
+  state         Int         @default(0)
+  proxy_group   proxy_group @relation(fields: [proxy_groupid], references: [proxy_groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_proxy_group_rtdata_1")
+}
+
+model proxy_history {
+  id          BigInt  @id
+  itemid      BigInt
+  clock       Int     @default(0)
+  timestamp   Int     @default(0)
+  source      String  @default("") @db.VarChar(64)
+  severity    Int     @default(0)
+  value       String  @default("")
+  logeventid  Int     @default(0)
+  ns          Int     @default(0)
+  state       Int     @default(0)
+  lastlogsize Decimal @default(0) @db.Decimal(20, 0)
+  mtime       Int     @default(0)
+  flags       Int     @default(0)
+  write_clock Int     @default(0)
+
+  @@index([write_clock], map: "proxy_history_2")
+}
+
+model proxy_rtdata {
+  proxyid       BigInt @id
+  lastaccess    Int    @default(0)
+  version       Int    @default(0)
+  compatibility Int    @default(0)
+  state         Int    @default(0)
+  proxy         proxy  @relation(fields: [proxyid], references: [proxyid], onDelete: Cascade, onUpdate: NoAction, map: "c_proxy_rtdata_1")
+}
+
+model regexps {
+  regexpid    BigInt        @id
+  name        String        @unique(map: "regexps_1") @default("") @db.VarChar(128)
+  test_string String        @default("")
+  expressions expressions[]
+}
+
+model report {
+  reportid      BigInt          @id
+  userid        BigInt
+  name          String          @unique(map: "report_1") @default("") @db.VarChar(255)
+  description   String          @default("") @db.VarChar(2048)
+  status        Int             @default(0)
+  dashboardid   BigInt
+  period        Int             @default(0)
+  cycle         Int             @default(0)
+  weekdays      Int             @default(0)
+  start_time    Int             @default(0)
+  active_since  Int             @default(0)
+  active_till   Int             @default(0)
+  state         Int             @default(0)
+  lastsent      Int             @default(0)
+  info          String          @default("") @db.VarChar(2048)
+  users         users           @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_1")
+  dashboard     dashboard       @relation(fields: [dashboardid], references: [dashboardid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_2")
+  report_param  report_param[]
+  report_user   report_user[]
+  report_usrgrp report_usrgrp[]
+
+  @@index([userid], map: "report_2")
+  @@index([dashboardid], map: "report_3")
+}
+
+model report_param {
+  reportparamid BigInt @id
+  reportid      BigInt
+  name          String @default("") @db.VarChar(255)
+  value         String @default("")
+  report        report @relation(fields: [reportid], references: [reportid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_param_1")
+
+  @@index([reportid], map: "report_param_1")
+}
+
+model report_user {
+  reportuserid                           BigInt  @id
+  reportid                               BigInt
+  userid                                 BigInt
+  exclude                                Int     @default(0)
+  access_userid                          BigInt?
+  report                                 report  @relation(fields: [reportid], references: [reportid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_user_1")
+  users_report_user_useridTousers        users   @relation("report_user_useridTousers", fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_user_2")
+  users_report_user_access_useridTousers users?  @relation("report_user_access_useridTousers", fields: [access_userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "c_report_user_3")
+
+  @@index([reportid], map: "report_user_1")
+  @@index([userid], map: "report_user_2")
+  @@index([access_userid], map: "report_user_3")
+}
+
+model report_usrgrp {
+  reportusrgrpid BigInt  @id
+  reportid       BigInt
+  usrgrpid       BigInt
+  access_userid  BigInt?
+  report         report  @relation(fields: [reportid], references: [reportid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_usrgrp_1")
+  usrgrp         usrgrp  @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_report_usrgrp_2")
+  users          users?  @relation(fields: [access_userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "c_report_usrgrp_3")
+
+  @@index([reportid], map: "report_usrgrp_1")
+  @@index([usrgrpid], map: "report_usrgrp_2")
+  @@index([access_userid], map: "report_usrgrp_3")
+}
+
+model rights {
+  rightid    BigInt @id
+  groupid    BigInt
+  permission Int    @default(0)
+  id         BigInt
+  usrgrp     usrgrp @relation(fields: [groupid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_rights_1")
+  hstgrp     hstgrp @relation(fields: [id], references: [groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_rights_2")
+
+  @@index([groupid], map: "rights_1")
+  @@index([id], map: "rights_2")
+}
+
+model role {
+  roleid                 BigInt                   @id
+  name                   String                   @unique(map: "role_1") @default("") @db.VarChar(255)
+  type                   Int                      @default(0)
+  readonly               Int                      @default(0)
+  role_rule              role_rule[]
+  userdirectory_idpgroup userdirectory_idpgroup[]
+  users                  users[]
+}
+
+model role_rule {
+  role_ruleid     BigInt    @id
+  roleid          BigInt
+  type            Int       @default(0)
+  name            String    @default("") @db.VarChar(255)
+  value_int       Int       @default(0)
+  value_str       String    @default("") @db.VarChar(255)
+  value_moduleid  BigInt?
+  value_serviceid BigInt?
+  role            role      @relation(fields: [roleid], references: [roleid], onDelete: Cascade, onUpdate: NoAction, map: "c_role_rule_1")
+  module          module?   @relation(fields: [value_moduleid], references: [moduleid], onDelete: Cascade, onUpdate: NoAction, map: "c_role_rule_2")
+  services        services? @relation(fields: [value_serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_role_rule_3")
+
+  @@index([roleid], map: "role_rule_1")
+  @@index([value_moduleid], map: "role_rule_2")
+  @@index([value_serviceid], map: "role_rule_3")
+}
+
+model scim_group {
+  scim_groupid    BigInt            @id
+  name            String            @unique(map: "scim_group_1") @default("") @db.VarChar(64)
+  user_scim_group user_scim_group[]
+}
+
+model script_param {
+  script_paramid BigInt  @id
+  scriptid       BigInt
+  name           String  @default("") @db.VarChar(255)
+  value          String  @default("") @db.VarChar(2048)
+  scripts        scripts @relation(fields: [scriptid], references: [scriptid], onDelete: Cascade, onUpdate: NoAction, map: "c_script_param_1")
+
+  @@unique([scriptid, name], map: "script_param_1")
+}
+
+model scripts {
+  scriptid                   BigInt         @id
+  name                       String         @default("") @db.VarChar(255)
+  command                    String         @default("")
+  host_access                Int            @default(2)
+  usrgrpid                   BigInt?
+  groupid                    BigInt?
+  description                String         @default("")
+  confirmation               String         @default("") @db.VarChar(255)
+  type                       Int            @default(5)
+  execute_on                 Int            @default(2)
+  timeout                    String         @default("30s") @db.VarChar(32)
+  scope                      Int            @default(1)
+  port                       String         @default("") @db.VarChar(64)
+  authtype                   Int            @default(0)
+  username                   String         @default("") @db.VarChar(64)
+  password                   String         @default("") @db.VarChar(64)
+  publickey                  String         @default("") @db.VarChar(64)
+  privatekey                 String         @default("") @db.VarChar(64)
+  menu_path                  String         @default("") @db.VarChar(255)
+  url                        String         @default("") @db.VarChar(2048)
+  new_window                 Int            @default(1)
+  manualinput                Int            @default(0)
+  manualinput_prompt         String         @default("") @db.VarChar(255)
+  manualinput_validator      String         @default("") @db.VarChar(2048)
+  manualinput_validator_type Int            @default(0)
+  manualinput_default_value  String         @default("") @db.VarChar(255)
+  opcommand                  opcommand[]
+  script_param               script_param[]
+  usrgrp                     usrgrp?        @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: NoAction, onUpdate: NoAction, map: "c_scripts_1")
+  hstgrp                     hstgrp?        @relation(fields: [groupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_scripts_2")
+
+  @@unique([name, menu_path], map: "scripts_3")
+  @@index([usrgrpid], map: "scripts_1")
+  @@index([groupid], map: "scripts_2")
+}
+
+model service_alarms {
+  servicealarmid BigInt   @id
+  serviceid      BigInt
+  clock          Int      @default(0)
+  value          Int      @default(-1)
+  services       services @relation(fields: [serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_service_alarms_1")
+
+  @@index([serviceid, clock], map: "service_alarms_1")
+  @@index([clock], map: "service_alarms_2")
+}
+
+model service_problem {
+  service_problemid BigInt   @id
+  eventid           BigInt
+  serviceid         BigInt
+  severity          Int      @default(0)
+  problem           problem  @relation(fields: [eventid], references: [eventid], onDelete: Cascade, onUpdate: NoAction, map: "c_service_problem_1")
+  services          services @relation(fields: [serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_service_problem_2")
+
+  @@index([eventid], map: "service_problem_1")
+  @@index([serviceid], map: "service_problem_2")
+}
+
+model service_problem_tag {
+  service_problem_tagid BigInt   @id
+  serviceid             BigInt
+  tag                   String   @default("") @db.VarChar(255)
+  operator              Int      @default(0)
+  value                 String   @default("") @db.VarChar(255)
+  services              services @relation(fields: [serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_service_problem_tag_1")
+
+  @@index([serviceid], map: "service_problem_tag_1")
+}
+
+model service_status_rule {
+  service_status_ruleid BigInt   @id
+  serviceid             BigInt
+  type                  Int      @default(0)
+  limit_value           Int      @default(0)
+  limit_status          Int      @default(0)
+  new_status            Int      @default(0)
+  services              services @relation(fields: [serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_service_status_rule_1")
+
+  @@index([serviceid], map: "service_status_rule_1")
+}
+
+model service_tag {
+  servicetagid BigInt   @id
+  serviceid    BigInt
+  tag          String   @default("") @db.VarChar(255)
+  value        String   @default("") @db.VarChar(255)
+  services     services @relation(fields: [serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_service_tag_1")
+
+  @@index([serviceid], map: "service_tag_1")
+}
+
+model services {
+  serviceid                                             BigInt                @id
+  name                                                  String                @default("") @db.VarChar(128)
+  status                                                Int                   @default(-1)
+  algorithm                                             Int                   @default(0)
+  sortorder                                             Int                   @default(0)
+  weight                                                Int                   @default(0)
+  propagation_rule                                      Int                   @default(0)
+  propagation_value                                     Int                   @default(0)
+  description                                           String                @default("")
+  uuid                                                  String                @default("") @db.VarChar(32)
+  created_at                                            Int                   @default(0)
+  role_rule                                             role_rule[]
+  service_alarms                                        service_alarms[]
+  service_problem                                       service_problem[]
+  service_problem_tag                                   service_problem_tag[]
+  service_status_rule                                   service_status_rule[]
+  service_tag                                           service_tag[]
+  services_links_services_links_serviceupidToservices   services_links[]      @relation("services_links_serviceupidToservices")
+  services_links_services_links_servicedownidToservices services_links[]      @relation("services_links_servicedownidToservices")
+  widget_field                                          widget_field[]
+
+  @@index([uuid], map: "services_1")
+}
+
+model services_links {
+  linkid                                          BigInt   @id
+  serviceupid                                     BigInt
+  servicedownid                                   BigInt
+  services_services_links_serviceupidToservices   services @relation("services_links_serviceupidToservices", fields: [serviceupid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_services_links_1")
+  services_services_links_servicedownidToservices services @relation("services_links_servicedownidToservices", fields: [servicedownid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_services_links_2")
+
+  @@unique([serviceupid, servicedownid], map: "services_links_2")
+  @@index([servicedownid], map: "services_links_1")
+}
+
+model sessions {
+  sessionid  String @id @default("") @db.VarChar(32)
+  userid     BigInt
+  lastaccess Int    @default(0)
+  status     Int    @default(0)
+  secret     String @default("") @db.VarChar(32)
+  users      users  @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_sessions_1")
+
+  @@index([userid, status, lastaccess], map: "sessions_1")
+}
+
+model settings {
+  name                  String         @id @db.VarChar(255)
+  type                  Int
+  value_str             String         @default("")
+  value_int             Int            @default(0)
+  value_usrgrpid        BigInt?
+  value_hostgroupid     BigInt?
+  value_userdirectoryid BigInt?
+  value_mfaid           BigInt?
+  usrgrp                usrgrp?        @relation(fields: [value_usrgrpid], references: [usrgrpid], onDelete: NoAction, onUpdate: NoAction, map: "c_settings_2")
+  hstgrp                hstgrp?        @relation(fields: [value_hostgroupid], references: [groupid], onDelete: NoAction, onUpdate: NoAction, map: "c_settings_3")
+  userdirectory         userdirectory? @relation(fields: [value_userdirectoryid], references: [userdirectoryid], onDelete: NoAction, onUpdate: NoAction, map: "c_settings_4")
+  mfa                   mfa?           @relation(fields: [value_mfaid], references: [mfaid], onDelete: NoAction, onUpdate: NoAction, map: "c_settings_5")
+
+  @@index([value_usrgrpid], map: "settings_2")
+  @@index([value_hostgroupid], map: "settings_3")
+  @@index([value_userdirectoryid], map: "settings_4")
+  @@index([value_mfaid], map: "settings_5")
+}
+
+model sla {
+  slaid                 BigInt                  @id
+  name                  String                  @unique(map: "sla_1") @default("") @db.VarChar(255)
+  period                Int                     @default(0)
+  slo                   Float                   @default(99.9)
+  effective_date        Int                     @default(0)
+  timezone              String                  @default("UTC") @db.VarChar(50)
+  status                Int                     @default(1)
+  description           String                  @default("")
+  sla_excluded_downtime sla_excluded_downtime[]
+  sla_schedule          sla_schedule[]
+  sla_service_tag       sla_service_tag[]
+  widget_field          widget_field[]
+}
+
+model sla_excluded_downtime {
+  sla_excluded_downtimeid BigInt @id
+  slaid                   BigInt
+  name                    String @default("") @db.VarChar(255)
+  period_from             Int    @default(0)
+  period_to               Int    @default(0)
+  sla                     sla    @relation(fields: [slaid], references: [slaid], onDelete: Cascade, onUpdate: NoAction, map: "c_sla_excluded_downtime_1")
+
+  @@index([slaid], map: "sla_excluded_downtime_1")
+}
+
+model sla_schedule {
+  sla_scheduleid BigInt @id
+  slaid          BigInt
+  period_from    Int    @default(0)
+  period_to      Int    @default(0)
+  sla            sla    @relation(fields: [slaid], references: [slaid], onDelete: Cascade, onUpdate: NoAction, map: "c_sla_schedule_1")
+
+  @@index([slaid], map: "sla_schedule_1")
+}
+
+model sla_service_tag {
+  sla_service_tagid BigInt @id
+  slaid             BigInt
+  tag               String @default("") @db.VarChar(255)
+  operator          Int    @default(0)
+  value             String @default("") @db.VarChar(255)
+  sla               sla    @relation(fields: [slaid], references: [slaid], onDelete: Cascade, onUpdate: NoAction, map: "c_sla_service_tag_1")
+
+  @@index([slaid], map: "sla_service_tag_1")
+}
+
+model sysmap_element_trigger {
+  selement_triggerid BigInt           @id
+  selementid         BigInt
+  triggerid          BigInt
+  sysmaps_elements   sysmaps_elements @relation(fields: [selementid], references: [selementid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_element_trigger_1")
+  triggers           triggers         @relation(fields: [triggerid], references: [triggerid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_element_trigger_2")
+
+  @@unique([selementid, triggerid], map: "sysmap_element_trigger_1")
+  @@index([triggerid], map: "sysmap_element_trigger_2")
+}
+
+model sysmap_element_url {
+  sysmapelementurlid BigInt           @id
+  selementid         BigInt
+  name               String           @db.VarChar(255)
+  url                String           @default("") @db.VarChar(2048)
+  sysmaps_elements   sysmaps_elements @relation(fields: [selementid], references: [selementid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_element_url_1")
+
+  @@unique([selementid, name], map: "sysmap_element_url_1")
+}
+
+model sysmap_link_threshold {
+  linkthresholdid BigInt        @id
+  linkid          BigInt
+  drawtype        Int           @default(0)
+  color           String        @default("000000") @db.VarChar(6)
+  type            Int           @default(0)
+  threshold       String        @default("") @db.VarChar(255)
+  pattern         String        @default("") @db.VarChar(255)
+  sortorder       Int           @default(0)
+  sysmaps_links   sysmaps_links @relation(fields: [linkid], references: [linkid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_link_threshold_1")
+
+  @@index([linkid], map: "sysmap_link_threshold_1")
+}
+
+model sysmap_shape {
+  sysmap_shapeid   BigInt  @id
+  sysmapid         BigInt
+  type             Int     @default(0)
+  x                Int     @default(0)
+  y                Int     @default(0)
+  width            Int     @default(200)
+  height           Int     @default(200)
+  text             String  @default("")
+  font             Int     @default(9)
+  font_size        Int     @default(11)
+  font_color       String  @default("000000") @db.VarChar(6)
+  text_halign      Int     @default(0)
+  text_valign      Int     @default(0)
+  border_type      Int     @default(0)
+  border_width     Int     @default(1)
+  border_color     String  @default("000000") @db.VarChar(6)
+  background_color String  @default("") @db.VarChar(6)
+  zindex           Int     @default(0)
+  sysmaps          sysmaps @relation(fields: [sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_shape_1")
+
+  @@index([sysmapid], map: "sysmap_shape_1")
+}
+
+model sysmap_url {
+  sysmapurlid BigInt  @id
+  sysmapid    BigInt
+  name        String  @db.VarChar(255)
+  url         String  @default("") @db.VarChar(2048)
+  elementtype Int     @default(0)
+  sysmaps     sysmaps @relation(fields: [sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_url_1")
+
+  @@unique([sysmapid, name], map: "sysmap_url_1")
+}
+
+model sysmap_user {
+  sysmapuserid BigInt  @id
+  sysmapid     BigInt
+  userid       BigInt
+  permission   Int     @default(2)
+  sysmaps      sysmaps @relation(fields: [sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_user_1")
+  users        users   @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_user_2")
+
+  @@unique([sysmapid, userid], map: "sysmap_user_1")
+  @@index([userid], map: "sysmap_user_2")
+}
+
+model sysmap_usrgrp {
+  sysmapusrgrpid BigInt  @id
+  sysmapid       BigInt
+  usrgrpid       BigInt
+  permission     Int     @default(2)
+  sysmaps        sysmaps @relation(fields: [sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_usrgrp_1")
+  usrgrp         usrgrp  @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmap_usrgrp_2")
+
+  @@unique([sysmapid, usrgrpid], map: "sysmap_usrgrp_1")
+  @@index([usrgrpid], map: "sysmap_usrgrp_2")
+}
+
+model sysmaps {
+  sysmapid               BigInt             @id
+  name                   String             @unique(map: "sysmaps_1") @default("") @db.VarChar(128)
+  width                  Int                @default(600)
+  height                 Int                @default(400)
+  backgroundid           BigInt?
+  label_type             Int                @default(2)
+  label_location         Int                @default(0)
+  highlight              Int                @default(1)
+  expandproblem          Int                @default(1)
+  markelements           Int                @default(0)
+  show_unack             Int                @default(0)
+  grid_size              Int                @default(50)
+  grid_show              Int                @default(1)
+  grid_align             Int                @default(1)
+  label_format           Int                @default(0)
+  label_type_host        Int                @default(2)
+  label_type_hostgroup   Int                @default(2)
+  label_type_trigger     Int                @default(2)
+  label_type_map         Int                @default(2)
+  label_type_image       Int                @default(2)
+  label_string_host      String             @default("") @db.VarChar(255)
+  label_string_hostgroup String             @default("") @db.VarChar(255)
+  label_string_trigger   String             @default("") @db.VarChar(255)
+  label_string_map       String             @default("") @db.VarChar(255)
+  label_string_image     String             @default("") @db.VarChar(255)
+  iconmapid              BigInt?
+  expand_macros          Int                @default(0)
+  severity_min           Int                @default(0)
+  userid                 BigInt
+  private                Int                @default(1)
+  show_suppressed        Int                @default(0)
+  background_scale       Int                @default(1)
+  show_element_label     Int                @default(1)
+  show_link_label        Int                @default(1)
+  sysmap_shape           sysmap_shape[]
+  sysmap_url             sysmap_url[]
+  sysmap_user            sysmap_user[]
+  sysmap_usrgrp          sysmap_usrgrp[]
+  images                 images?            @relation(fields: [backgroundid], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_1")
+  icon_map               icon_map?          @relation(fields: [iconmapid], references: [iconmapid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_2")
+  users                  users              @relation(fields: [userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_3")
+  sysmaps_elements       sysmaps_elements[]
+  sysmaps_links          sysmaps_links[]
+  widget_field           widget_field[]
+
+  @@index([backgroundid], map: "sysmaps_2")
+  @@index([iconmapid], map: "sysmaps_3")
+  @@index([userid], map: "sysmaps_4")
+}
+
+model sysmaps_element_tag {
+  selementtagid    BigInt           @id
+  selementid       BigInt
+  tag              String           @default("") @db.VarChar(255)
+  value            String           @default("") @db.VarChar(255)
+  operator         Int              @default(0)
+  sysmaps_elements sysmaps_elements @relation(fields: [selementid], references: [selementid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_element_tag_1")
+
+  @@index([selementid], map: "sysmaps_element_tag_1")
+}
+
+model sysmaps_elements {
+  selementid                                                BigInt                   @id
+  sysmapid                                                  BigInt
+  elementid                                                 BigInt                   @default(0)
+  elementtype                                               Int                      @default(0)
+  iconid_off                                                BigInt?
+  iconid_on                                                 BigInt?
+  label                                                     String                   @default("") @db.VarChar(2048)
+  label_location                                            Int                      @default(-1)
+  x                                                         Int                      @default(0)
+  y                                                         Int                      @default(0)
+  iconid_disabled                                           BigInt?
+  iconid_maintenance                                        BigInt?
+  elementsubtype                                            Int                      @default(0)
+  areatype                                                  Int                      @default(0)
+  width                                                     Int                      @default(200)
+  height                                                    Int                      @default(200)
+  viewtype                                                  Int                      @default(0)
+  use_iconmap                                               Int                      @default(1)
+  evaltype                                                  Int                      @default(0)
+  show_label                                                Int                      @default(-1)
+  zindex                                                    Int                      @default(0)
+  sysmap_element_trigger                                    sysmap_element_trigger[]
+  sysmap_element_url                                        sysmap_element_url[]
+  sysmaps_element_tag                                       sysmaps_element_tag[]
+  sysmaps                                                   sysmaps                  @relation(fields: [sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_elements_1")
+  images_sysmaps_elements_iconid_offToimages                images?                  @relation("sysmaps_elements_iconid_offToimages", fields: [iconid_off], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_elements_2")
+  images_sysmaps_elements_iconid_onToimages                 images?                  @relation("sysmaps_elements_iconid_onToimages", fields: [iconid_on], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_elements_3")
+  images_sysmaps_elements_iconid_disabledToimages           images?                  @relation("sysmaps_elements_iconid_disabledToimages", fields: [iconid_disabled], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_elements_4")
+  images_sysmaps_elements_iconid_maintenanceToimages        images?                  @relation("sysmaps_elements_iconid_maintenanceToimages", fields: [iconid_maintenance], references: [imageid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_elements_5")
+  sysmaps_links_sysmaps_links_selementid1Tosysmaps_elements sysmaps_links[]          @relation("sysmaps_links_selementid1Tosysmaps_elements")
+  sysmaps_links_sysmaps_links_selementid2Tosysmaps_elements sysmaps_links[]          @relation("sysmaps_links_selementid2Tosysmaps_elements")
+
+  @@index([sysmapid], map: "sysmaps_elements_1")
+  @@index([iconid_off], map: "sysmaps_elements_2")
+  @@index([iconid_on], map: "sysmaps_elements_3")
+  @@index([iconid_disabled], map: "sysmaps_elements_4")
+  @@index([iconid_maintenance], map: "sysmaps_elements_5")
+}
+
+model sysmaps_link_triggers {
+  linktriggerid BigInt        @id
+  linkid        BigInt
+  triggerid     BigInt
+  drawtype      Int           @default(0)
+  color         String        @default("000000") @db.VarChar(6)
+  sysmaps_links sysmaps_links @relation(fields: [linkid], references: [linkid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_link_triggers_1")
+  triggers      triggers      @relation(fields: [triggerid], references: [triggerid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_link_triggers_2")
+
+  @@unique([linkid, triggerid], map: "sysmaps_link_triggers_1")
+  @@index([triggerid], map: "sysmaps_link_triggers_2")
+}
+
+model sysmaps_links {
+  linkid                                                       BigInt                  @id
+  sysmapid                                                     BigInt
+  selementid1                                                  BigInt
+  selementid2                                                  BigInt
+  drawtype                                                     Int                     @default(0)
+  color                                                        String                  @default("000000") @db.VarChar(6)
+  label                                                        String                  @default("") @db.VarChar(2048)
+  show_label                                                   Int                     @default(-1)
+  indicator_type                                               Int                     @default(0)
+  itemid                                                       BigInt?
+  sysmap_link_threshold                                        sysmap_link_threshold[]
+  sysmaps_link_triggers                                        sysmaps_link_triggers[]
+  sysmaps                                                      sysmaps                 @relation(fields: [sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_links_1")
+  sysmaps_elements_sysmaps_links_selementid1Tosysmaps_elements sysmaps_elements        @relation("sysmaps_links_selementid1Tosysmaps_elements", fields: [selementid1], references: [selementid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_links_2")
+  sysmaps_elements_sysmaps_links_selementid2Tosysmaps_elements sysmaps_elements        @relation("sysmaps_links_selementid2Tosysmaps_elements", fields: [selementid2], references: [selementid], onDelete: Cascade, onUpdate: NoAction, map: "c_sysmaps_links_3")
+  items                                                        items?                  @relation(fields: [itemid], references: [itemid], onDelete: NoAction, onUpdate: NoAction, map: "c_sysmaps_links_4")
+
+  @@index([sysmapid], map: "sysmaps_links_1")
+  @@index([selementid1], map: "sysmaps_links_2")
+  @@index([selementid2], map: "sysmaps_links_3")
+  @@index([itemid], map: "sysmaps_links_4")
+}
+
+model tag_filter {
+  tag_filterid BigInt @id
+  usrgrpid     BigInt
+  groupid      BigInt
+  tag          String @default("") @db.VarChar(255)
+  value        String @default("") @db.VarChar(255)
+  usrgrp       usrgrp @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_tag_filter_1")
+  hstgrp       hstgrp @relation(fields: [groupid], references: [groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_tag_filter_2")
+
+  @@index([usrgrpid], map: "tag_filter_1")
+  @@index([groupid], map: "tag_filter_2")
+}
+
+model task {
+  taskid                     BigInt                      @id
+  type                       Int
+  status                     Int                         @default(0)
+  clock                      Int                         @default(0)
+  ttl                        Int                         @default(0)
+  proxyid                    BigInt?
+  proxy                      proxy?                      @relation(fields: [proxyid], references: [proxyid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_1")
+  task_acknowledge           task_acknowledge?
+  task_check_now             task_check_now?
+  task_close_problem         task_close_problem?
+  task_data                  task_data?
+  task_remote_command        task_remote_command?
+  task_remote_command_result task_remote_command_result?
+  task_result                task_result?
+
+  @@index([status, proxyid], map: "task_1")
+  @@index([proxyid], map: "task_2")
+}
+
+model task_acknowledge {
+  taskid        BigInt @id
+  acknowledgeid BigInt
+  task          task   @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_acknowledge_1")
+}
+
+model task_check_now {
+  taskid BigInt @id
+  itemid BigInt
+  task   task   @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_check_now_1")
+}
+
+model task_close_problem {
+  taskid        BigInt @id
+  acknowledgeid BigInt
+  task          task   @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_close_problem_1")
+}
+
+model task_data {
+  taskid        BigInt  @id
+  type          Int     @default(0)
+  data          String  @default("")
+  parent_taskid BigInt?
+  task          task    @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_data_1")
+}
+
+model task_remote_command {
+  taskid        BigInt  @id
+  command_type  Int     @default(0)
+  execute_on    Int     @default(0)
+  port          Int     @default(0)
+  authtype      Int     @default(0)
+  username      String  @default("") @db.VarChar(64)
+  password      String  @default("") @db.VarChar(64)
+  publickey     String  @default("") @db.VarChar(64)
+  privatekey    String  @default("") @db.VarChar(64)
+  command       String  @default("")
+  alertid       BigInt?
+  parent_taskid BigInt
+  hostid        BigInt
+  task          task    @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_remote_command_1")
+}
+
+model task_remote_command_result {
+  taskid        BigInt @id
+  status        Int    @default(0)
+  parent_taskid BigInt
+  info          String @default("")
+  task          task   @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_remote_command_result_1")
+}
+
+model task_result {
+  taskid        BigInt @id
+  status        Int    @default(0)
+  parent_taskid BigInt
+  info          String @default("")
+  task          task   @relation(fields: [taskid], references: [taskid], onDelete: Cascade, onUpdate: NoAction, map: "c_task_result_1")
+
+  @@index([parent_taskid], map: "task_result_1")
+}
+
+model teste_replica {
+  id   Int     @id @default(autoincrement())
+  nome String? @db.VarChar(50)
+}
+
+model timeperiods {
+  timeperiodid         BigInt                 @id
+  timeperiod_type      Int                    @default(0)
+  every                Int                    @default(1)
+  month                Int                    @default(0)
+  dayofweek            Int                    @default(0)
+  day                  Int                    @default(0)
+  start_time           Int                    @default(0)
+  period               Int                    @default(0)
+  start_date           Int                    @default(0)
+  maintenances_windows maintenances_windows[]
+}
+
+model token {
+  tokenid                           BigInt  @id
+  name                              String  @default("") @db.VarChar(64)
+  description                       String  @default("")
+  userid                            BigInt
+  token                             String? @unique(map: "token_3") @db.VarChar(128)
+  lastaccess                        Int     @default(0)
+  status                            Int     @default(0)
+  expires_at                        Int     @default(0)
+  created_at                        Int     @default(0)
+  creator_userid                    BigInt?
+  users_token_useridTousers         users   @relation("token_useridTousers", fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_token_1")
+  users_token_creator_useridTousers users?  @relation("token_creator_useridTousers", fields: [creator_userid], references: [userid], onDelete: NoAction, onUpdate: NoAction, map: "c_token_2")
+
+  @@unique([userid, name], map: "token_2")
+  @@index([name], map: "token_1")
+  @@index([creator_userid], map: "token_4")
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model trends {
+  itemid    BigInt
+  clock     Int    @default(0)
+  num       Int    @default(0)
+  value_min Float  @default(0)
+  value_avg Float  @default(0)
+  value_max Float  @default(0)
+
+  @@id([itemid, clock])
+  @@index([clock(sort: Desc)])
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model trends_uint {
+  itemid    BigInt
+  clock     Int     @default(0)
+  num       Int     @default(0)
+  value_min Decimal @default(0) @db.Decimal(20, 0)
+  value_avg Decimal @default(0) @db.Decimal(20, 0)
+  value_max Decimal @default(0) @db.Decimal(20, 0)
+
+  @@id([itemid, clock])
+  @@index([clock(sort: Desc)])
+}
+
+model trigger_depends {
+  triggerdepid                                      BigInt   @id
+  triggerid_down                                    BigInt
+  triggerid_up                                      BigInt
+  triggers_trigger_depends_triggerid_downTotriggers triggers @relation("trigger_depends_triggerid_downTotriggers", fields: [triggerid_down], references: [triggerid], onDelete: Cascade, onUpdate: NoAction, map: "c_trigger_depends_1")
+  triggers_trigger_depends_triggerid_upTotriggers   triggers @relation("trigger_depends_triggerid_upTotriggers", fields: [triggerid_up], references: [triggerid], onDelete: Cascade, onUpdate: NoAction, map: "c_trigger_depends_2")
+
+  @@unique([triggerid_down, triggerid_up], map: "trigger_depends_1")
+  @@index([triggerid_up], map: "trigger_depends_2")
+}
+
+model trigger_discovery {
+  triggerid                                             BigInt   @id
+  parent_triggerid                                      BigInt
+  lastcheck                                             Int      @default(0)
+  ts_delete                                             Int      @default(0)
+  status                                                Int      @default(0)
+  disable_source                                        Int      @default(0)
+  ts_disable                                            Int      @default(0)
+  triggers_trigger_discovery_triggeridTotriggers        triggers @relation("trigger_discovery_triggeridTotriggers", fields: [triggerid], references: [triggerid], onDelete: Cascade, onUpdate: NoAction, map: "c_trigger_discovery_1")
+  triggers_trigger_discovery_parent_triggeridTotriggers triggers @relation("trigger_discovery_parent_triggeridTotriggers", fields: [parent_triggerid], references: [triggerid], onDelete: NoAction, onUpdate: NoAction, map: "c_trigger_discovery_2")
+
+  @@index([parent_triggerid], map: "trigger_discovery_1")
+}
+
+model trigger_queue {
+  trigger_queueid BigInt @id
+  objectid        BigInt
+  type            Int    @default(0)
+  clock           Int    @default(0)
+  ns              Int    @default(0)
+}
+
+model trigger_tag {
+  triggertagid BigInt   @id
+  triggerid    BigInt
+  tag          String   @default("") @db.VarChar(255)
+  value        String   @default("") @db.VarChar(255)
+  triggers     triggers @relation(fields: [triggerid], references: [triggerid], onDelete: NoAction, onUpdate: NoAction, map: "c_trigger_tag_1")
+
+  @@index([triggerid], map: "trigger_tag_1")
+}
+
+model triggers {
+  triggerid                                                      BigInt                   @id
+  expression                                                     String                   @default("") @db.VarChar(2048)
+  description                                                    String                   @default("") @db.VarChar(255)
+  url                                                            String                   @default("") @db.VarChar(2048)
+  status                                                         Int                      @default(0)
+  value                                                          Int                      @default(0)
+  priority                                                       Int                      @default(0)
+  lastchange                                                     Int                      @default(0)
+  comments                                                       String                   @default("")
+  error                                                          String                   @default("") @db.VarChar(2048)
+  templateid                                                     BigInt?
+  type                                                           Int                      @default(0)
+  state                                                          Int                      @default(0)
+  flags                                                          Int                      @default(0)
+  recovery_mode                                                  Int                      @default(0)
+  recovery_expression                                            String                   @default("") @db.VarChar(2048)
+  correlation_mode                                               Int                      @default(0)
+  correlation_tag                                                String                   @default("") @db.VarChar(255)
+  manual_close                                                   Int                      @default(0)
+  opdata                                                         String                   @default("") @db.VarChar(255)
+  discover                                                       Int                      @default(0)
+  event_name                                                     String                   @default("") @db.VarChar(2048)
+  uuid                                                           String                   @default("") @db.VarChar(32)
+  url_name                                                       String                   @default("") @db.VarChar(64)
+  functions                                                      functions[]
+  sysmap_element_trigger                                         sysmap_element_trigger[]
+  sysmaps_link_triggers                                          sysmaps_link_triggers[]
+  trigger_depends_trigger_depends_triggerid_downTotriggers       trigger_depends[]        @relation("trigger_depends_triggerid_downTotriggers")
+  trigger_depends_trigger_depends_triggerid_upTotriggers         trigger_depends[]        @relation("trigger_depends_triggerid_upTotriggers")
+  trigger_discovery_trigger_discovery_triggeridTotriggers        trigger_discovery?       @relation("trigger_discovery_triggeridTotriggers")
+  trigger_discovery_trigger_discovery_parent_triggeridTotriggers trigger_discovery[]      @relation("trigger_discovery_parent_triggeridTotriggers")
+  trigger_tag                                                    trigger_tag[]
+  triggers                                                       triggers?                @relation("triggersTotriggers", fields: [templateid], references: [triggerid], onDelete: NoAction, onUpdate: NoAction, map: "c_triggers_1")
+  other_triggers                                                 triggers[]               @relation("triggersTotriggers")
+
+  @@index([status], map: "triggers_1")
+  @@index([value, lastchange], map: "triggers_2")
+  @@index([templateid], map: "triggers_3")
+  @@index([uuid], map: "triggers_4")
+}
+
+model ugset {
+  ugsetid     BigInt        @id
+  hash        String        @default("") @db.VarChar(64)
+  permission  permission[]
+  ugset_group ugset_group[]
+  user_ugset  user_ugset[]
+
+  @@index([hash], map: "ugset_1")
+}
+
+model ugset_group {
+  ugsetid  BigInt
+  usrgrpid BigInt
+  ugset    ugset  @relation(fields: [ugsetid], references: [ugsetid], onDelete: Cascade, onUpdate: NoAction, map: "c_ugset_group_1")
+  usrgrp   usrgrp @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: NoAction, onUpdate: NoAction, map: "c_ugset_group_2")
+
+  @@id([ugsetid, usrgrpid])
+  @@index([usrgrpid], map: "ugset_group_1")
+}
+
+model user_scim_group {
+  user_scim_groupid BigInt     @id
+  userid            BigInt
+  scim_groupid      BigInt
+  users             users      @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_user_scim_group_1")
+  scim_group        scim_group @relation(fields: [scim_groupid], references: [scim_groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_user_scim_group_2")
+
+  @@index([userid], map: "user_scim_group_1")
+  @@index([scim_groupid], map: "user_scim_group_2")
+}
+
+model user_ugset {
+  userid  BigInt @id
+  ugsetid BigInt
+  users   users  @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_user_ugset_1")
+  ugset   ugset  @relation(fields: [ugsetid], references: [ugsetid], onDelete: NoAction, onUpdate: NoAction, map: "c_user_ugset_2")
+
+  @@index([ugsetid], map: "user_ugset_1")
+}
+
+model userdirectory {
+  userdirectoryid        BigInt                   @id
+  name                   String                   @default("") @db.VarChar(128)
+  description            String                   @default("")
+  idp_type               Int                      @default(1)
+  provision_status       Int                      @default(0)
+  settings               settings[]
+  userdirectory_idpgroup userdirectory_idpgroup[]
+  userdirectory_ldap     userdirectory_ldap?
+  userdirectory_media    userdirectory_media[]
+  userdirectory_saml     userdirectory_saml?
+  users                  users[]
+  usrgrp                 usrgrp[]
+
+  @@index([idp_type], map: "userdirectory_1")
+}
+
+model userdirectory_idpgroup {
+  userdirectory_idpgroupid BigInt                 @id
+  userdirectoryid          BigInt
+  roleid                   BigInt
+  name                     String                 @default("") @db.VarChar(255)
+  userdirectory            userdirectory          @relation(fields: [userdirectoryid], references: [userdirectoryid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_idpgroup_1")
+  role                     role                   @relation(fields: [roleid], references: [roleid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_idpgroup_2")
+  userdirectory_usrgrp     userdirectory_usrgrp[]
+
+  @@index([userdirectoryid], map: "userdirectory_idpgroup_1")
+  @@index([roleid], map: "userdirectory_idpgroup_2")
+}
+
+model userdirectory_ldap {
+  userdirectoryid  BigInt        @id
+  host             String        @default("") @db.VarChar(255)
+  port             Int           @default(389)
+  base_dn          String        @default("") @db.VarChar(255)
+  search_attribute String        @default("") @db.VarChar(128)
+  bind_dn          String        @default("") @db.VarChar(255)
+  bind_password    String        @default("") @db.VarChar(128)
+  start_tls        Int           @default(0)
+  search_filter    String        @default("") @db.VarChar(255)
+  group_basedn     String        @default("") @db.VarChar(255)
+  group_name       String        @default("") @db.VarChar(255)
+  group_member     String        @default("") @db.VarChar(255)
+  user_ref_attr    String        @default("") @db.VarChar(255)
+  group_filter     String        @default("") @db.VarChar(255)
+  group_membership String        @default("") @db.VarChar(255)
+  user_username    String        @default("") @db.VarChar(255)
+  user_lastname    String        @default("") @db.VarChar(255)
+  userdirectory    userdirectory @relation(fields: [userdirectoryid], references: [userdirectoryid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_ldap_1")
+}
+
+model userdirectory_media {
+  userdirectory_mediaid BigInt        @id
+  userdirectoryid       BigInt
+  mediatypeid           BigInt
+  name                  String        @default("") @db.VarChar(64)
+  attribute             String        @default("") @db.VarChar(255)
+  active                Int           @default(0)
+  severity              Int           @default(63)
+  period                String        @default("1-7,00:00-24:00") @db.VarChar(1024)
+  media                 media[]
+  userdirectory         userdirectory @relation(fields: [userdirectoryid], references: [userdirectoryid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_media_1")
+  media_type            media_type    @relation(fields: [mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_media_2")
+
+  @@index([userdirectoryid], map: "userdirectory_media_1")
+  @@index([mediatypeid], map: "userdirectory_media_2")
+}
+
+model userdirectory_saml {
+  userdirectoryid       BigInt        @id
+  idp_entityid          String        @default("") @db.VarChar(1024)
+  sso_url               String        @default("") @db.VarChar(2048)
+  slo_url               String        @default("") @db.VarChar(2048)
+  username_attribute    String        @default("") @db.VarChar(128)
+  sp_entityid           String        @default("") @db.VarChar(1024)
+  nameid_format         String        @default("") @db.VarChar(2048)
+  sign_messages         Int           @default(0)
+  sign_assertions       Int           @default(0)
+  sign_authn_requests   Int           @default(0)
+  sign_logout_requests  Int           @default(0)
+  sign_logout_responses Int           @default(0)
+  encrypt_nameid        Int           @default(0)
+  encrypt_assertions    Int           @default(0)
+  group_name            String        @default("") @db.VarChar(255)
+  user_username         String        @default("") @db.VarChar(255)
+  user_lastname         String        @default("") @db.VarChar(255)
+  scim_status           Int           @default(0)
+  userdirectory         userdirectory @relation(fields: [userdirectoryid], references: [userdirectoryid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_saml_1")
+}
+
+model userdirectory_usrgrp {
+  userdirectory_usrgrpid   BigInt                 @id
+  userdirectory_idpgroupid BigInt
+  usrgrpid                 BigInt
+  userdirectory_idpgroup   userdirectory_idpgroup @relation(fields: [userdirectory_idpgroupid], references: [userdirectory_idpgroupid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_usrgrp_1")
+  usrgrp                   usrgrp                 @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_userdirectory_usrgrp_2")
+
+  @@unique([userdirectory_idpgroupid, usrgrpid], map: "userdirectory_usrgrp_1")
+  @@index([usrgrpid], map: "userdirectory_usrgrp_2")
+}
+
+model users {
+  userid                                       BigInt            @id
+  username                                     String            @unique(map: "users_1") @default("") @db.VarChar(100)
+  name                                         String            @default("") @db.VarChar(100)
+  surname                                      String            @default("") @db.VarChar(100)
+  passwd                                       String            @default("") @db.VarChar(60)
+  url                                          String            @default("") @db.VarChar(2048)
+  autologin                                    Int               @default(0)
+  autologout                                   String            @default("15m") @db.VarChar(32)
+  lang                                         String            @default("default") @db.VarChar(7)
+  refresh                                      String            @default("30s") @db.VarChar(32)
+  theme                                        String            @default("default") @db.VarChar(128)
+  attempt_failed                               Int               @default(0)
+  attempt_ip                                   String            @default("") @db.VarChar(39)
+  attempt_clock                                Int               @default(0)
+  rows_per_page                                Int               @default(50)
+  timezone                                     String            @default("default") @db.VarChar(50)
+  roleid                                       BigInt?
+  userdirectoryid                              BigInt?
+  ts_provisioned                               Int               @default(0)
+  acknowledges                                 acknowledges[]
+  alerts                                       alerts[]
+  dashboard                                    dashboard[]
+  dashboard_user                               dashboard_user[]
+  event_suppress                               event_suppress[]
+  media                                        media[]
+  mfa_totp_secret                              mfa_totp_secret[]
+  opmessage_usr                                opmessage_usr[]
+  profiles                                     profiles[]
+  report                                       report[]
+  report_user_report_user_useridTousers        report_user[]     @relation("report_user_useridTousers")
+  report_user_report_user_access_useridTousers report_user[]     @relation("report_user_access_useridTousers")
+  report_usrgrp                                report_usrgrp[]
+  sessions                                     sessions[]
+  sysmap_user                                  sysmap_user[]
+  sysmaps                                      sysmaps[]
+  token_token_useridTousers                    token[]           @relation("token_useridTousers")
+  token_token_creator_useridTousers            token[]           @relation("token_creator_useridTousers")
+  user_scim_group                              user_scim_group[]
+  user_ugset                                   user_ugset?
+  role                                         role?             @relation(fields: [roleid], references: [roleid], onDelete: Cascade, onUpdate: NoAction, map: "c_users_1")
+  userdirectory                                userdirectory?    @relation(fields: [userdirectoryid], references: [userdirectoryid], onDelete: NoAction, onUpdate: NoAction, map: "c_users_2")
+  users_groups                                 users_groups[]
+  widget_field                                 widget_field[]
+
+  @@index([userdirectoryid], map: "users_2")
+  @@index([roleid], map: "users_3")
+}
+
+model users_groups {
+  id       BigInt @id
+  usrgrpid BigInt
+  userid   BigInt
+  usrgrp   usrgrp @relation(fields: [usrgrpid], references: [usrgrpid], onDelete: Cascade, onUpdate: NoAction, map: "c_users_groups_1")
+  users    users  @relation(fields: [userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_users_groups_2")
+
+  @@unique([usrgrpid, userid], map: "users_groups_1")
+  @@index([userid], map: "users_groups_2")
+}
+
+model usrgrp {
+  usrgrpid             BigInt                 @id
+  name                 String                 @unique(map: "usrgrp_1") @default("") @db.VarChar(64)
+  gui_access           Int                    @default(0)
+  users_status         Int                    @default(0)
+  debug_mode           Int                    @default(0)
+  userdirectoryid      BigInt?
+  mfa_status           Int                    @default(0)
+  mfaid                BigInt?
+  dashboard_usrgrp     dashboard_usrgrp[]
+  opmessage_grp        opmessage_grp[]
+  report_usrgrp        report_usrgrp[]
+  rights               rights[]
+  scripts              scripts[]
+  settings             settings[]
+  sysmap_usrgrp        sysmap_usrgrp[]
+  tag_filter           tag_filter[]
+  ugset_group          ugset_group[]
+  userdirectory_usrgrp userdirectory_usrgrp[]
+  users_groups         users_groups[]
+  userdirectory        userdirectory?         @relation(fields: [userdirectoryid], references: [userdirectoryid], onDelete: NoAction, onUpdate: NoAction, map: "c_usrgrp_2")
+  mfa                  mfa?                   @relation(fields: [mfaid], references: [mfaid], onDelete: NoAction, onUpdate: NoAction, map: "c_usrgrp_3")
+
+  @@index([userdirectoryid], map: "usrgrp_2")
+  @@index([mfaid], map: "usrgrp_3")
+}
+
+model valuemap {
+  valuemapid       BigInt             @id
+  hostid           BigInt
+  name             String             @default("") @db.VarChar(64)
+  uuid             String             @default("") @db.VarChar(32)
+  items            items[]
+  hosts            hosts              @relation(fields: [hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_valuemap_1")
+  valuemap_mapping valuemap_mapping[]
+
+  @@unique([hostid, name], map: "valuemap_1")
+  @@index([uuid], map: "valuemap_2")
+}
+
+model valuemap_mapping {
+  valuemap_mappingid BigInt   @id
+  valuemapid         BigInt
+  value              String   @default("") @db.VarChar(64)
+  newvalue           String   @default("") @db.VarChar(64)
+  type               Int      @default(0)
+  sortorder          Int      @default(0)
+  valuemap           valuemap @relation(fields: [valuemapid], references: [valuemapid], onDelete: Cascade, onUpdate: NoAction, map: "c_valuemap_mapping_1")
+
+  @@unique([valuemapid, value, type], map: "valuemap_mapping_1")
+}
+
+model widget {
+  widgetid         BigInt         @id
+  type             String         @default("") @db.VarChar(255)
+  name             String         @default("") @db.VarChar(255)
+  x                Int            @default(0)
+  y                Int            @default(0)
+  width            Int            @default(1)
+  height           Int            @default(2)
+  view_mode        Int            @default(0)
+  dashboard_pageid BigInt
+  dashboard_page   dashboard_page @relation(fields: [dashboard_pageid], references: [dashboard_pageid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_1")
+  widget_field     widget_field[]
+
+  @@index([dashboard_pageid], map: "widget_1")
+}
+
+model widget_field {
+  widget_fieldid    BigInt      @id
+  widgetid          BigInt
+  type              Int         @default(0)
+  name              String      @default("") @db.VarChar(255)
+  value_int         Int         @default(0)
+  value_str         String      @default("") @db.VarChar(2048)
+  value_groupid     BigInt?
+  value_hostid      BigInt?
+  value_itemid      BigInt?
+  value_graphid     BigInt?
+  value_sysmapid    BigInt?
+  value_serviceid   BigInt?
+  value_slaid       BigInt?
+  value_userid      BigInt?
+  value_actionid    BigInt?
+  value_mediatypeid BigInt?
+  widget            widget      @relation(fields: [widgetid], references: [widgetid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_1")
+  actions           actions?    @relation(fields: [value_actionid], references: [actionid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_10")
+  media_type        media_type? @relation(fields: [value_mediatypeid], references: [mediatypeid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_11")
+  hstgrp            hstgrp?     @relation(fields: [value_groupid], references: [groupid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_2")
+  hosts             hosts?      @relation(fields: [value_hostid], references: [hostid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_3")
+  items             items?      @relation(fields: [value_itemid], references: [itemid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_4")
+  graphs            graphs?     @relation(fields: [value_graphid], references: [graphid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_5")
+  sysmaps           sysmaps?    @relation(fields: [value_sysmapid], references: [sysmapid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_6")
+  services          services?   @relation(fields: [value_serviceid], references: [serviceid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_7")
+  sla               sla?        @relation(fields: [value_slaid], references: [slaid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_8")
+  users             users?      @relation(fields: [value_userid], references: [userid], onDelete: Cascade, onUpdate: NoAction, map: "c_widget_field_9")
+
+  @@index([widgetid], map: "widget_field_1")
+  @@index([value_actionid], map: "widget_field_10")
+  @@index([value_mediatypeid], map: "widget_field_11")
+  @@index([value_groupid], map: "widget_field_2")
+  @@index([value_hostid], map: "widget_field_3")
+  @@index([value_itemid], map: "widget_field_4")
+  @@index([value_graphid], map: "widget_field_5")
+  @@index([value_sysmapid], map: "widget_field_6")
+  @@index([value_serviceid], map: "widget_field_7")
+  @@index([value_slaid], map: "widget_field_8")
+  @@index([value_userid], map: "widget_field_9")
+}
