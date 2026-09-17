@@ -25,7 +25,7 @@ router.get('/grupos', validarToken, async (_req, res: Response) => {
 //   - Senão → busca por nome do grupo
 // ─────────────────────────────────────────────────────────────
 router.get(
-  '/grupo/:chave/hosts',
+  '/grupo/:chave',
   validarToken,
   async (req: Request<{ chave: string }>, res: Response) => {
     try {

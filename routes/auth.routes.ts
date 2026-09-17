@@ -63,7 +63,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const u = resultado.usuario
-    const expiresInEnv = process.env.JWT_EXPIRES_IN ?? '5m'
+    const expiresInEnv = process.env.JWT_EXPIRES_IN ?? 'never'
 
     const payload = {
       origem: 'portal',
