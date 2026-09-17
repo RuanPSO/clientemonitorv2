@@ -9,7 +9,7 @@ import 'dotenv/config'
 
 import express, { type Request, type Response, type NextFunction } from 'express'
 import cors from 'cors'
-
+import { cacheStats, invalidateAll } from './lib/cache.js'
 import authRoutes from './routes/auth.routes.js'
 import hostRoutes from './routes/host.routes.js'
 import grupoRoutes from './routes/grupo.routes.js'
@@ -40,6 +40,23 @@ app.use(grupoRoutes)
 app.use(relatorioRoutes)
 app.use(slaRoutes)
 app.use(servicesRoutes)
+
+app.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    cache: cacheStats(),
+    uptime_s: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  })
+})
+
+// Rota admin para limpar cache (bloqueada em produção)
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/admin/cache/clear', (_req, res) => {
+    invalidateAll()
+    res.json({ ok: true, msg: 'Cache limpo' })
+  })
+}
 
 // ─── 404 para rotas não encontradas ───
 app.use((req: Request, res: Response) => {

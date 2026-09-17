@@ -1,4 +1,7 @@
 // services/zabbix.service.ts
+import { cached } from '../lib/cache.js'
+import { prisma } from '../lib/prisma.js'
+
 import { HostRepository, type HostResumo, type GrupoZabbix, type HostBasico } from '../repositories/host.repository.js'
 import { MetricRepository } from '../repositories/metric.repository.js'
 import { ServiceRepository, type HostService, type HostSlaSummary, type ServicesHistoryResult } from '../repositories/service.repository.js'
@@ -6,6 +9,22 @@ import { ReportRepository, type SeriePonto, type DiscoHistorico, type Disponibil
 import { TimelineRepository, type HostTimelineResult } from '../repositories/timeline.repository.js'
 import { HostClassifier, type ClassificacaoHost } from './host-classifier.service.js'
 import { obterSla, formatarTempo, categorizarServico, type SlaStatus, type CategoriaServico } from '../utils/helpers.js'
+
+// =============================================================
+// TTLs — ajuste conforme a volatilidade dos dados
+// =============================================================
+const TTL = {
+  GRUPOS:                5 * 60_000, // 5 min  — grupos do Zabbix raramente mudam
+  HOSTS_DO_GRUPO:        60_000,     // 1 min  — lista de hosts do grupo
+  HOST_DETAILS:          30_000,     // 30 s   — métricas do host (CPU, RAM, disco…)
+  HOST_BASICO:           30_000,     // 30 s   — nome/status do host
+  HOST_SERVICES:         30_000,     // 30 s   — serviços ON/OFF do host
+  HOST_PROBLEMAS:        30_000,     // 30 s   — problemas recentes
+  HOST_RELATORIO:        60_000,     // 1 min  — séries históricas
+  HOST_SLA:              60_000,     // 1 min  — SLA agregado
+  HOST_SERVICES_HISTORY: 60_000,     // 1 min
+  HOST_TIMELINE:         60_000,     // 1 min
+} as const
 
 // =============================================================
 // TIPOS PÚBLICOS
@@ -20,7 +39,7 @@ export interface HostDetails {
   discos: Array<{ mount: string; uso: number }>
   uptime_fmt: string
   services: HostService[]
-  classificacao: ClassificacaoHost  // ← NOVO (opção B)
+  classificacao: ClassificacaoHost
 }
 
 export interface ColetaCompleta {
@@ -64,11 +83,20 @@ export class ZabbixService {
   // ───────────────────────────────────────────────────────────
 
   static async listarGrupos(): Promise<GrupoZabbix[]> {
-    return HostRepository.listarGrupos()
+    return cached(
+      'grupos:all',
+      () => HostRepository.listarGrupos(),
+      TTL.GRUPOS,
+    )
   }
 
   static async getHostsDoGrupo(groupid: bigint | number): Promise<HostResumo[]> {
-    return HostRepository.getHostsDoGrupo(groupid)
+    const id = groupid.toString()
+    return cached(
+      `grupo:${id}:hosts`,
+      () => HostRepository.getHostsDoGrupo(groupid),
+      TTL.HOSTS_DO_GRUPO,
+    )
   }
 
   /**
@@ -80,7 +108,11 @@ export class ZabbixService {
     chave: string
     hosts: HostResumo[]
   }> {
-    return HostRepository.getHostsPorChave(chave)
+    return cached(
+      `grupo:${chave}:hosts-por-chave`,
+      () => HostRepository.getHostsPorChave(chave),
+      TTL.HOSTS_DO_GRUPO,
+    )
   }
 
   // ───────────────────────────────────────────────────────────
@@ -88,6 +120,15 @@ export class ZabbixService {
   // ───────────────────────────────────────────────────────────
 
   static async getHostDetails(hostid: bigint | number): Promise<HostDetails> {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:details`,
+      () => ZabbixService._getHostDetailsUncached(hostid),
+      TTL.HOST_DETAILS,
+    )
+  }
+
+  private static async _getHostDetailsUncached(hostid: bigint | number): Promise<HostDetails> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
 
     // 1) Coleta tudo que é independente em paralelo
@@ -159,12 +200,12 @@ export class ZabbixService {
   }
 
   // ───────────────────────────────────────────────────────────
-  // COLETA COMPLETA (cuidado: muitos hosts = muitas queries)
+  // COLETA COMPLETA (sem cache — pesado e raro)
   // ───────────────────────────────────────────────────────────
 
   static async coletarDadosCompletos(): Promise<ColetaCompleta> {
     // Lista hosts ATIVOS (status=0)
-    const grupos = await HostRepository.listarGrupos()
+    const grupos = await ZabbixService.listarGrupos()
     const todos = new Map<string, HostResumo>()
 
     // Coleta de todos os grupos (evita host duplicado por estar em vários grupos)
@@ -195,9 +236,16 @@ export class ZabbixService {
   // ───────────────────────────────────────────────────────────
 
   static async getProblemasHost(hostid: bigint | number): Promise<ProblemaHost[]> {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:problemas`,
+      () => ZabbixService._getProblemasHostUncached(hostid),
+      TTL.HOST_PROBLEMAS,
+    )
+  }
+
+  private static async _getProblemasHostUncached(hostid: bigint | number): Promise<ProblemaHost[]> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
-    // Implementação direta via prisma (equivalente ao SQL do zabbix.py)
-    const { prisma } = await import('../lib/prisma.js')
 
     const rows = await prisma.$queryRaw<
       Array<{ eventid: bigint; name: string; severity: number; data: Date }>
@@ -235,6 +283,20 @@ export class ZabbixService {
     fim: string,
     agrupamento: string = '15min',
   ): Promise<RelatorioHostInteligente> {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:relatorio:${inicio}:${fim}:${agrupamento}`,
+      () => ZabbixService._getRelatorioHostInteligenteUncached(hostid, inicio, fim, agrupamento),
+      TTL.HOST_RELATORIO,
+    )
+  }
+
+  private static async _getRelatorioHostInteligenteUncached(
+    hostid: bigint | number,
+    inicio: string,
+    fim: string,
+    agrupamento: string,
+  ): Promise<RelatorioHostInteligente> {
     const [cpu, memoria, disponibilidade, discos, services] = await Promise.all([
       ReportRepository.getCpuHistory(hostid, inicio, fim),
       ReportRepository.getMemoriaHistory(hostid, inicio, fim),
@@ -255,7 +317,12 @@ export class ZabbixService {
     inicio: string,
     fim: string,
   ): Promise<HostSlaSummary> {
-    return ServiceRepository.getHostSlaSummary(hostid, inicio, fim)
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:sla:${inicio}:${fim}`,
+      () => ServiceRepository.getHostSlaSummary(hostid, inicio, fim),
+      TTL.HOST_SLA,
+    )
   }
 
   // ───────────────────────────────────────────────────────────
@@ -267,7 +334,12 @@ export class ZabbixService {
     inicioTs: number,
     fimTs: number,
   ): Promise<ServicesHistoryResult> {
-    return ServiceRepository.getServicesHistory(hostid, inicioTs, fimTs)
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:services-history:${inicioTs}:${fimTs}`,
+      () => ServiceRepository.getServicesHistory(hostid, inicioTs, fimTs),
+      TTL.HOST_SERVICES_HISTORY,
+    )
   }
 
   static async getHostTimeline(
@@ -275,7 +347,12 @@ export class ZabbixService {
     inicioTs: number,
     fimTs: number,
   ): Promise<HostTimelineResult> {
-    return TimelineRepository.getHostTimeline(hostid, inicioTs, fimTs)
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:timeline:${inicioTs}:${fimTs}`,
+      () => TimelineRepository.getHostTimeline(hostid, inicioTs, fimTs),
+      TTL.HOST_TIMELINE,
+    )
   }
 
   // ───────────────────────────────────────────────────────────
@@ -283,10 +360,20 @@ export class ZabbixService {
   // ───────────────────────────────────────────────────────────
 
   static async getHostBasico(hostid: bigint | number): Promise<HostBasico | null> {
-    return HostRepository.getHostBasico(hostid)
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:basico`,
+      () => HostRepository.getHostBasico(hostid),
+      TTL.HOST_BASICO,
+    )
   }
 
   static async getHostServices(hostid: bigint | number): Promise<HostService[]> {
-    return ServiceRepository.getHostServices(hostid)
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:services`,
+      () => ServiceRepository.getHostServices(hostid),
+      TTL.HOST_SERVICES,
+    )
   }
 }
