@@ -38,4 +38,20 @@ router.get(
   },
 )
 
+
+router.get(
+  '/grupo/:chave/hosts-full',
+  validarToken,
+  async (req: Request<{ chave: string }>, res: Response) => {
+    try {
+      const { chave } = req.params
+      const dados = await ZabbixService.getHostsFullDoGrupo(chave)
+      res.json(dados)
+    } catch (e: unknown) {
+      console.error('[hosts-full]', e)
+      res.status(500).json({ erro: (e as Error).message })
+    }
+  },
+)
+
 export default router

@@ -12,6 +12,7 @@ const store = new LRUCache<string, Entry<unknown>>({
   updateAgeOnGet: false,
   updateAgeOnHas: false,
 })
+const inFlight = new Map<string, Promise<unknown>>()
 
 /**
  * Executa `fn` se o cache estiver vazio ou expirado.
@@ -32,10 +33,18 @@ export async function cached<T>(
     return hit.value as T
   }
 
+  const pending = inFlight.get(key)
+  if (pending !== undefined) return pending as Promise<T>
+
   if (process.env.CACHE_DEBUG === '1') console.log(`[cache] MISS ${key}`)
-  const value = await fn()
-  store.set(key, { value }, { ttl: ttlMs })
-  return value
+  const request = fn()
+    .then((value) => {
+      store.set(key, { value }, { ttl: ttlMs })
+      return value
+    })
+    .finally(() => inFlight.delete(key))
+  inFlight.set(key, request)
+  return request
 }
 
 /**
@@ -59,6 +68,7 @@ export function invalidate(prefix: string): number {
  */
 export function invalidateAll(): void {
   store.clear()
+  inFlight.clear()
 }
 
 /**

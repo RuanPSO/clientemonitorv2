@@ -35,8 +35,8 @@ async function main() {
   console.log('Primeiros 5:', grupos.slice(0, 5))
 
   // Pega um grupo que tenha hosts (ajuste o nome para um real)
-  if (grupos.length > 0) {
-    const grupoTeste = grupos[0]
+  const grupoTeste = grupos[0]
+  if (grupoTeste) {
     console.log(`\n─── Hosts do grupo "${grupoTeste.name}" (por ID) ───`)
     const hostsPorId = await HostRepository.getHostsDoGrupo(BigInt(grupoTeste.groupid))
     console.log(`Total: ${hostsPorId.length}`)
@@ -50,8 +50,9 @@ async function main() {
     console.log('Por nome:', (await HostRepository.getHostsPorChave(grupoTeste.name)).tipo)
 
     // Se tiver host no grupo, testa os helpers do classifier
-    if (hostsPorNome.length > 0) {
-      const hostid = hostsPorNome[0].hostid
+    const host = hostsPorNome[0]
+    if (host) {
+      const hostid = BigInt(host.hostid)
       console.log(`\n─── Dados auxiliares do host ${hostid} ───`)
       const [templates, gruposHost, iface] = await Promise.all([
         HostRepository.getTemplatesDoHost(hostid),

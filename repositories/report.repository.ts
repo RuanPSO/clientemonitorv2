@@ -171,11 +171,13 @@ export class ReportRepository {
       LIMIT 1
     `
     if (rows.length === 0) return []
+    const item = rows[0]
+    if (!item) return []
 
     const inicioTs = isoParaTimestamp(inicio)
     const fimTs = isoParaTimestamp(fim)
 
-    return ReportRepository._serieHistory(rows[0].itemid, inicioTs, fimTs)
+    return ReportRepository._serieHistory(item.itemid, inicioTs, fimTs)
   }
 
   // ==========================================================
@@ -220,11 +222,12 @@ export class ReportRepository {
       let mount = row.mount
       if (!mount) {
         try {
-          mount = row.key_.split('[')[1].split(',')[0]
+          mount = row.key_.split('[')[1]?.split(',')[0] ?? null
         } catch {
           continue
         }
       }
+      if (!mount) continue
 
       // ← NOVO: se já processamos esse mount, pula (evita duplicatas)
       if (mountsProcessados.has(mount)) continue
@@ -248,7 +251,9 @@ export class ReportRepository {
         LIMIT 1
       `
       if (totalRows.length > 0) {
-        const totalBytes = await MetricRepository.getLastValue(totalRows[0].itemid, 'int')
+        const totalRow = totalRows[0]
+        if (!totalRow) continue
+        const totalBytes = await MetricRepository.getLastValue(totalRow.itemid, 'int')
         if (totalBytes !== null) {
           disco.total_gb = round2(Number(totalBytes) / GB)
         }
@@ -261,7 +266,9 @@ export class ReportRepository {
         LIMIT 1
       `
       if (freeRows.length > 0) {
-        const freeBytes = await MetricRepository.getLastValue(freeRows[0].itemid, 'int')
+        const freeRow = freeRows[0]
+        if (!freeRow) continue
+        const freeBytes = await MetricRepository.getLastValue(freeRow.itemid, 'int')
         if (freeBytes !== null) {
           disco.free_gb = round2(Number(freeBytes) / GB)
         }
@@ -293,7 +300,9 @@ export class ReportRepository {
       return { uptime: 0, downtime: 0, availability: 0 }
     }
 
-    const itemid = icmpRows[0].itemid
+    const icmpRow = icmpRows[0]
+    if (!icmpRow) return { uptime: 0, downtime: 0, availability: 0 }
+    const itemid = icmpRow.itemid
 
     const rows = await prisma.$queryRaw<Array<{ up: bigint; down: bigint; total: bigint }>>`
       SELECT
@@ -308,9 +317,11 @@ export class ReportRepository {
       return { uptime: 0, downtime: 0, availability: 0 }
     }
 
-    const up = Number(rows[0].up ?? 0)
-    const down = Number(rows[0].down ?? 0)
-    const total = Number(rows[0].total ?? 0)
+    const availabilityRow = rows[0]
+    if (!availabilityRow) return { uptime: 0, downtime: 0, availability: 0 }
+    const up = Number(availabilityRow.up ?? 0)
+    const down = Number(availabilityRow.down ?? 0)
+    const total = Number(availabilityRow.total ?? 0)
     const availability = total > 0 ? round2((up / total) * 100) : 0
 
     return { uptime: up, downtime: down, availability }

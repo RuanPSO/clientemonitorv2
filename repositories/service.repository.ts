@@ -412,6 +412,83 @@ export class ServiceRepository {
     return kpis
   }
 
+
+  /**
+   * SERVIÇOS em lote — 1 query para todos os hosts.
+   * Retorna Map<hostidString, Array<{ name, status, last_update }>>
+   */
+  static async getServicesBatch(
+    hostids: bigint[],
+  ): Promise<Map<string, Array<{ name: string; status: 'ON' | 'OFF' | 'UNKNOWN'; last_update: number | null }>>> {
+    const result = new Map<string, Array<{ name: string; status: 'ON' | 'OFF' | 'UNKNOWN'; last_update: number | null }>>()
+    if (hostids.length === 0) return result
+
+    const idsStr = hostids.map((h) => h.toString())
+    const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
+
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{
+        hostid: bigint
+        itemid: bigint
+        name: string
+        key_: string
+        value: bigint | number | null
+      }>
+    >(
+      `SELECT
+         i.hostid,
+         i.itemid,
+         i.name,
+         i.key_,
+         u.value
+       FROM items i
+       LEFT JOIN LATERAL (
+         SELECT value FROM history_uint
+         WHERE itemid = i.itemid ORDER BY clock DESC LIMIT 1
+       ) u ON true
+       WHERE i.hostid IN (${placeholders})
+         AND i.status = 0
+         AND (i.key_ LIKE 'service.info%' OR i.key_ LIKE 'systemd.unit%')
+         AND i.key_ NOT LIKE 'proc.num%'
+         AND i.name NOT ILIKE '%discovery%'
+         AND i.name NOT ILIKE '{#%'
+       ORDER BY i.hostid, i.name`,
+      ...idsStr,
+    )
+
+    // Inicializa arrays vazios
+    for (const id of idsStr) result.set(id, [])
+
+    for (const r of rows) {
+      const id = r.hostid.toString()
+      const nome = ServiceRepository._extrairNomeServico(r.name, r.key_)
+      const nomeLower = (nome || '').toLowerCase()
+      if (!nome || nomeLower.includes('discovery') || nome.includes('{#')) continue
+
+      const v = r.value
+      let status: 'ON' | 'OFF' | 'UNKNOWN' = 'UNKNOWN'
+      if (v !== null && v !== undefined) {
+        const n = Number(v)
+        if (n === 0) status = 'ON'
+        else if (n === 6) status = 'OFF'
+        else status = 'UNKNOWN'
+      }
+
+      result.get(id)!.push({ name: nome, status, last_update: null })
+    }
+
+    return result
+  }
+
+
+
+
+
+
+
+
+
+
   /**
    * Sumário de SLA para o host.
    * Equivalente a `ServiceRepository.get_host_sla_summary`.

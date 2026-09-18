@@ -21,9 +21,11 @@ async function main() {
     const info = await prisma.$queryRaw<
       Array<{ current_user: string; current_database: string; versao: string }>
     >`SELECT current_user, current_database(), version() AS versao`
-    console.log('\n👤 Usuário logado:', info[0].current_user)
-    console.log('🗄️  Banco:', info[0].current_database)
-    console.log('📦 Versão:', info[0].versao.split(' ').slice(0, 2).join(' '))
+    const infoRow = info[0]
+    if (!infoRow) throw new Error('Banco não retornou informações de conexão')
+    console.log('\n👤 Usuário logado:', infoRow.current_user)
+    console.log('🗄️  Banco:', infoRow.current_database)
+    console.log('📦 Versão:', infoRow.versao.split(' ').slice(0, 2).join(' '))
   } catch (erro) {
     console.error('❌ Erro ao obter info do banco:', erro)
   }
@@ -50,9 +52,12 @@ async function main() {
   // 4) Conta hosts cadastrados
   // ─────────────────────────────────────────────────────────
   try {
-    const [{ total }] = await prisma.$queryRaw<Array<{ total: bigint }>>`
+    const rows = await prisma.$queryRaw<Array<{ total: bigint }>>`
       SELECT COUNT(*) AS total FROM hosts
     `
+    const countRow = rows[0]
+    if (!countRow) throw new Error('Banco não retornou a contagem de hosts')
+    const { total } = countRow
     console.log(`\n🖥️  Total de hosts cadastrados: ${total}`)
   } catch (erro) {
     console.error('❌ Erro ao contar hosts:', erro)
@@ -93,11 +98,12 @@ async function main() {
       WHERE hostid = ${hostidTeste}
     `
 
-    if (host.length === 0) {
+    const hostRow = host[0]
+    if (!hostRow) {
       console.log(`\n⚠️  Nenhum host encontrado com hostid=${hostidTeste} (ajuste o valor para testar)`)
     } else {
       console.log(`\n🔍 Busca por hostid=${hostidTeste}:`)
-      console.log(`   • ${host[0].host} — "${host[0].name}"`)
+      console.log(`   • ${hostRow.host} — "${hostRow.name}"`)
     }
   } catch (erro) {
     console.error('❌ Erro na busca por hostid:', erro)

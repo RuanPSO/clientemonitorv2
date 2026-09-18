@@ -8,7 +8,7 @@ import { ServiceRepository, type HostService, type HostSlaSummary, type Services
 import { ReportRepository, type SeriePonto, type DiscoHistorico, type Disponibilidade } from '../repositories/report.repository.js'
 import { TimelineRepository, type HostTimelineResult } from '../repositories/timeline.repository.js'
 import { HostClassifier, type ClassificacaoHost } from './host-classifier.service.js'
-import { obterSla, formatarTempo, categorizarServico, type SlaStatus, type CategoriaServico } from '../utils/helpers.js'
+import { obterSla, formatarTempo, categorizarServico, fmtUptime, type SlaStatus, type CategoriaServico } from '../utils/helpers.js'
 
 // =============================================================
 // TTLs — ajuste conforme a volatilidade dos dados
@@ -209,9 +209,11 @@ export class ZabbixService {
     const todos = new Map<string, HostResumo>()
 
     // Coleta de todos os grupos (evita host duplicado por estar em vários grupos)
-    for (const g of grupos) {
-      const hs = await HostRepository.getHostsDoGrupo(BigInt(g.groupid))
-      for (const h of hs) todos.set(h.hostid, h)
+    const hostsPorGrupo = await Promise.all(
+      grupos.map((g) => HostRepository.getHostsDoGrupo(BigInt(g.groupid))),
+    )
+    for (const hosts of hostsPorGrupo) {
+      for (const host of hosts) todos.set(host.hostid, host)
     }
 
     const hostsUnicos = Array.from(todos.values())
@@ -376,4 +378,124 @@ export class ZabbixService {
       TTL.HOST_SERVICES,
     )
   }
+
+  static async getHostsFullDoGrupo(chave: string): Promise<HostsFullResponse> {
+    return cached(
+      `grupo:${chave}:hosts-full`,
+      async () => {
+        // 1) Lista hosts do grupo
+        const grupoResp = await HostRepository.getHostsPorChave(chave)
+        const hosts = grupoResp.hosts
+
+        if (hosts.length === 0) {
+          return { grupo: chave, tipo: grupoResp.tipo, total: 0, hosts: [] }
+        }
+
+        const hostids = hosts.map((h) => BigInt(h.hostid))
+
+        // 2) BATCH — 7 queries totais (independente do número de hosts)
+        const [
+          statusMap,
+          cpuMap,
+          memoriaMap,
+          uptimeMap,
+          osMap,
+          discosMap,
+          tipoMap,
+          templatesMap,
+          gruposMap,
+          ifaceMap,
+          servicesMap,
+        ] = await Promise.all([
+          MetricRepository.getStatusBatch(hostids),
+          MetricRepository.getCpuBatch(hostids),
+          MetricRepository.getMemoriaBatch(hostids),
+          MetricRepository.getUptimeBatch(hostids),
+          MetricRepository.getOsBatch(hostids),
+          MetricRepository.getDiscosBatch(hostids),
+          MetricRepository.getTipoHostBatch(hostids),
+          HostRepository.getTemplatesBatch(hostids),
+          HostRepository.getGruposBatch(hostids),
+          HostRepository.getInterfaceTypeBatch(hostids),
+          ServiceRepository.getServicesBatch(hostids),
+        ])
+
+        // 3) Monta o resultado
+        const resultado: HostFull[] = hosts.map((h) => {
+          const id = h.hostid
+          const idBig = BigInt(id)
+
+          const status = statusMap.get(id) ?? 'DOWN'
+          const cpu = cpuMap.get(id) ?? null
+          const memoria = memoriaMap.get(id) ?? null
+          const uptimeSeg = uptimeMap.get(id) ?? null
+          const os = osMap.get(id) ?? null
+          const discos = discosMap.get(id) ?? []
+          const tipo = tipoMap.get(id) ?? null
+          const templates = templatesMap.get(id) ?? []
+          const gruposHost = gruposMap.get(id) ?? []
+          const interfaceType = ifaceMap.get(id) ?? null
+          const services = servicesMap.get(id) ?? []
+
+          const classificacao = HostClassifier.classify({
+            hostid: idBig,
+            osData: os && tipo !== 'network' ? os : null,
+            templates,
+            services: services.map((s) => s.name),
+            groups: gruposHost,
+            interfaceType,
+          })
+
+          const isNetwork = tipo === 'network'
+
+          const details: HostDetails = isNetwork
+            ? {
+                hostid: id,
+                status,
+                cpu: null,
+                os: { type: 'network', name: 'Link/VPN' },
+                memoria: null,
+                discos: [],
+                uptime_fmt: 'N/A',
+                services: [],
+                classificacao,
+              }
+            : {
+                hostid: id,
+                status,
+                cpu,
+                os,
+                memoria,
+                discos,
+                uptime_fmt: uptimeSeg !== null ? fmtUptime(uptimeSeg) : 'N/A',
+                services: services as unknown as HostService[],
+                classificacao,
+              }
+
+          return { hostid: id, hostname: h.hostname, details }
+        })
+
+        return {
+          grupo: chave,
+          tipo: grupoResp.tipo,
+          total: resultado.length,
+          hosts: resultado,
+        }
+      },
+      60_000, // ← AUMENTEI para 60s (era 30s). Ajuste conforme sua necessidade.
+    )
+  }
+}
+
+export interface HostFull {
+  hostid: string
+  hostname: string
+  details: HostDetails
+}
+
+export interface HostsFullResponse {
+  grupo: string
+  tipo: 'id' | 'nome'
+  total: number
+  hosts: HostFull[]
 }

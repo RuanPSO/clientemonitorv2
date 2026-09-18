@@ -40,5 +40,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  }
+  },
+  "exclude": ["index-teste.ts", "index_tst.ts"]
 }
