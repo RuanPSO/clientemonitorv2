@@ -25,6 +25,14 @@ export interface UsuarioPublico {
   groupid_zabbix: string
 }
 
+export interface UsuarioAtivacao {
+  id: number
+  nome: string
+  email: string
+  ativo: boolean
+  token_expira: Date | null
+}
+
 // =============================================================
 export class UsuarioRepository {
   /**
@@ -132,5 +140,70 @@ export class UsuarioRepository {
       grupo: u.grupo,
       groupid_zabbix: u.groupid_zabbix,
     }
+  }
+
+  // ============================================================
+  // CRIAR usuário (com token de ativação)
+  // ============================================================
+  static async criar(params: {
+      nome: string
+      email: string
+      cargo: string | null
+      id_grupo: number
+      token_ativacao: string
+    }): Promise<number> {
+    const rows = await prismaCliente.$queryRaw<Array<{ id: number }>>`
+      INSERT INTO usuarios
+        (nome, email, senha, cargo, id_grupo, ativo, data_criacao, token_ativacao, token_expira)
+      VALUES
+        (${params.nome}, ${params.email}, '', ${params.cargo}, ${params.id_grupo}, false, NOW(), ${params.token_ativacao}, NOW() + INTERVAL '1 day')
+      RETURNING id
+    `
+    const row = rows[0]
+    if (!row) throw new Error('Não foi possível criar o usuário')
+    return Number(row.id)
+  }
+
+    /**
+     * Busca usuário pelo token de ativação (não valida expiração aqui).
+     */
+  static async findByTokenAtivacao(token: string): Promise<UsuarioAtivacao | null> {
+    const rows = await prismaCliente.$queryRaw<
+      Array<{
+        id: number
+        nome: string
+        email: string
+        ativo: boolean
+        token_expira: Date | null
+      }>
+    >`
+      SELECT id, nome, email, ativo, token_expira
+      FROM usuarios
+      WHERE token_ativacao = ${token}
+      LIMIT 1
+    `
+    const row = rows[0]
+    if (!row) return null
+    return {
+      id: Number(row.id),
+      nome: row.nome,
+      email: row.email,
+      ativo: Boolean(row.ativo),
+      token_expira: row.token_expira,
+    }
+  }
+
+    /**
+     * Ativa o usuário: salva senha hasheada, marca como ativo, limpa token.
+     */
+  static async ativarComSenha(id: number, senhaHash: string): Promise<void> {
+    await prismaCliente.$executeRaw`
+      UPDATE usuarios
+      SET senha = ${senhaHash},
+          ativo = true,
+          token_ativacao = NULL,
+          token_expira = NULL
+      WHERE id = ${id}
+    `
   }
 }

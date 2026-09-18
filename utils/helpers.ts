@@ -125,6 +125,9 @@ export function bytesParaGb(bytes: number | bigint | null | undefined): number {
   return round2(Number(bytes) / GB)
 }
 
+// =============================================================
+// AUTENTICAÇÃO — compatibilidade com werkzeug (Flask)
+// =============================================================
 
 /**
  * Verifica uma senha contra um hash do werkzeug (Flask).
@@ -178,4 +181,44 @@ export function verificarSenhaWerkzeug(senha: string, hashArmazenado: string): b
     console.error('[auth] Erro ao verificar senha:', e)
     return false
   }
+}
+
+/**
+ * Gera um hash de senha no formato werkzeug (Flask).
+ *
+ * Compatível com `generate_password_hash` do Python e verificado
+ * por `check_password_hash`. Útil para:
+ *   - Ativar contas (criar senha nova)
+ *   - Criar usuários via API admin
+ *   - Resetar senha
+ *
+ * Formato gerado: pbkdf2:sha256:600000$<salt>$<hex_hash>
+ *  - Algoritmo: PBKDF2-HMAC-SHA256
+ *  - Iterações: 600.000 (padrão werkzeug 3.x)
+ *  - Salt: 16 caracteres alfanuméricos aleatórios
+ *  - Hash: 32 bytes em hexadecimal
+ */
+export function gerarHashWerkzeug(senha: string): string {
+  const iterations = 600_000
+  const digest = 'sha256'
+  const saltLength = 16
+  const keylen = 32
+
+  // Werkzeug usa salt alfanumérico (a-z A-Z 0-9)
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const saltBytes = crypto.randomBytes(saltLength)
+  let salt = ''
+  for (let i = 0; i < saltLength; i++) {
+    const byte = saltBytes[i]
+    if (byte === undefined) continue
+    const char = chars[byte % chars.length]
+    if (char === undefined) continue
+    salt += char
+  }
+
+  const hash = crypto
+    .pbkdf2Sync(senha, salt, iterations, keylen, digest)
+    .toString('hex')
+
+  return `pbkdf2:${digest}:${iterations}$${salt}$${hash}`
 }
