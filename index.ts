@@ -16,6 +16,8 @@ import grupoRoutes from './routes/grupo.routes.js'
 import relatorioRoutes from './routes/relatorio.routes.js'
 import slaRoutes from './routes/sla.routes.js'
 import servicesRoutes from './routes/services.routes.js'
+import guacamoleRoutes from './routes/guacamole.routes.js'
+import incidentesRoutes from './routes/incidentes.routes.js'
 
 const app = express()
 
@@ -40,6 +42,8 @@ app.use(grupoRoutes)
 app.use(relatorioRoutes)
 app.use(slaRoutes)
 app.use(servicesRoutes)
+app.use(guacamoleRoutes)
+app.use(incidentesRoutes)
 
 app.get('/health', (_req, res) => {
   res.json({
