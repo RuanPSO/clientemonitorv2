@@ -358,6 +358,27 @@ export class ZabbixService {
   }
 
   // ───────────────────────────────────────────────────────────
+  // RELATÓRIO POR NOME (lookup interno)
+  // ───────────────────────────────────────────────────────────
+
+  /**
+   * Retorna o relatório do host buscando pelo NOME (não pelo hostid).
+   * Faz o lookup internamente e delega para getRelatorioHostInteligente.
+   * Retorna null se o host não existir.
+   */
+  static async getRelatorioPorNome(
+    hostname: string,
+    inicio: string,
+    fim: string,
+    agrupamento: string = '15min',
+  ): Promise<RelatorioHostInteligente | null> {
+    const hostid = await HostRepository.findHostidPorNome(hostname)
+    if (!hostid) return null
+
+    return ZabbixService.getRelatorioHostInteligente(hostid, inicio, fim, agrupamento)
+  }
+
+  // ───────────────────────────────────────────────────────────
   // GETTERS EXTRAS
   // ───────────────────────────────────────────────────────────
 

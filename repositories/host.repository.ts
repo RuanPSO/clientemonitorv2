@@ -240,4 +240,24 @@ export class HostRepository {
       }
       return result
     }
+
+  // ==========================================================
+  // BUSCAR HOST POR NOME (para o lookup de relatório)
+  // ==========================================================
+  /**
+   * Busca o hostid pelo nome técnico (`hosts.host`), case-insensitive.
+   * Prioriza hosts habilitados (status=0) quando há duplicados.
+   * Retorna null se não encontrar.
+   */
+  static async findHostidPorNome(nome: string): Promise<bigint | null> {
+    const rows = await prisma.$queryRaw<Array<{ hostid: bigint }>>`
+      SELECT hostid
+      FROM hosts
+      WHERE LOWER(host) = LOWER(${nome})
+      ORDER BY (status = 0) DESC
+      LIMIT 1
+    `
+    return rows[0]?.hostid ?? null
+  }
+
 }

@@ -81,4 +81,43 @@ router.get(
   },
 )
 
+
+// ─────────────────────────────────────────────────────────────
+// GET /host/by-name/:hostname/relatorio
+// Retorna CPU, Memória, Discos, Serviços do host pelo NOME
+// Query: ?inicio=YYYY-MM-DD HH:MM:SS&fim=...&agrupamento=15min
+//
+// Endpoint público (sem validarToken) para o Flask consumir.
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/host/by-name/:hostname/relatorio',
+  async (req: Request<{ hostname: string }>, res: Response) => {
+    try {
+      const { hostname } = req.params
+      const { inicio, fim, agrupamento } = req.query as Record<string, string | undefined>
+
+      if (!inicio || !fim) {
+        return res.status(400).json({ erro: 'inicio e fim são obrigatórios' })
+      }
+
+      const dados = await ZabbixService.getRelatorioPorNome(
+        decodeURIComponent(hostname),
+        inicio,
+        fim,
+        agrupamento ?? '15min',
+      )
+
+      if (!dados) {
+        return res.status(404).json({ erro: `Host "${hostname}" não encontrado` })
+      }
+
+      res.json(dados)
+    } catch (e: unknown) {
+      console.error('[host/by-name/relatorio]', e)
+      res.status(500).json({ erro: (e as Error).message })
+    }
+  },
+)
+
+
 export default router
