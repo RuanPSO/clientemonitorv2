@@ -24,7 +24,18 @@ const TTL = {
   HOST_SLA:              60_000,     // 1 min  — SLA agregado
   HOST_SERVICES_HISTORY: 60_000,     // 1 min
   HOST_TIMELINE:         60_000,     // 1 min
+  HOSTS_COM_IP:          60_000,     // 1 min  — lista de hosts com IP
+  HOSTS_COM_IP_E_SO:     5 * 60_000, // 5 min  — com detecção de SO (pesado)
+  STATUS_ALL:            15_000,     // 15 s   — status de todos os hosts
+  ACTIVE_SERVICES:       30_000,     // 30 s   — triggers ativas
+  RELATORIO_PERIODO:     60_000,     // 1 min  — resumos min/avg/max
+  SERIE_POR_KEY:         60_000,     // 1 min  — série de item específico
+  HOST_COM_IP:           30_000,     // 30 s
+
 } as const
+
+
+
 
 // =============================================================
 // TIPOS PÚBLICOS
@@ -504,6 +515,75 @@ export class ZabbixService {
         }
       },
       60_000, // ← AUMENTEI para 60s (era 30s). Ajuste conforme sua necessidade.
+    )
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // LISTAS E DIAGNÓSTICO (otimizados)
+  // ───────────────────────────────────────────────────────────
+
+  static async listarHostsComIp() {
+    return cached('hosts:com-ip', () => HostRepository.listarHostsComIp(), TTL.HOSTS_COM_IP)
+  }
+
+  static async getHostComIp(hostid: bigint | number) {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:com-ip`,
+      () => HostRepository.getHostComIp(hostid),
+      TTL.HOST_COM_IP,
+    )
+  }
+
+  static async listarHostsComIpESo() {
+    return cached(
+      'hosts:com-ip-e-so',
+      () => HostRepository.listarHostsComIpESo(),
+      TTL.HOSTS_COM_IP_E_SO,
+    )
+  }
+
+  static async getActiveServices(hostid: bigint | number) {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:active-services`,
+      () => MetricRepository.getActiveServices(hostid),
+      TTL.ACTIVE_SERVICES,
+    )
+  }
+
+  static async getStatusPingUptimeAll() {
+    return cached(
+      'hosts:status-ping-uptime:all',
+      () => MetricRepository.getStatusPingUptimeAll(),
+      TTL.STATUS_ALL,
+    )
+  }
+
+  static async getSeriePorKey(
+    hostid: bigint | number,
+    itemKey: string,
+    inicio: string,
+    fim: string,
+  ) {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:serie:${itemKey}:${inicio}:${fim}`,
+      () => MetricRepository.getSeriePorKey(hostid, itemKey, inicio, fim),
+      TTL.SERIE_POR_KEY,
+    )
+  }
+
+  static async getRelatorioPorPeriodo(
+    hostid: bigint | number,
+    inicio: string,
+    fim: string,
+  ) {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:relatorio-periodo:${inicio}:${fim}`,
+      () => ZabbixService.getRelatorioHostInteligente(hostid, inicio, fim),
+      TTL.RELATORIO_PERIODO,
     )
   }
 }

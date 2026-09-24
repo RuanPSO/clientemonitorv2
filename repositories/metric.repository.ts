@@ -1003,4 +1003,296 @@ export class MetricRepository {
 
       return result
     }
+
+  // ==========================================================
+  // ACTIVE SERVICES — 1 EXISTS em vez de 3 JOINs
+  // ==========================================================
+  /**
+   * Otimização: o Python original fazia 3 JOINs (triggers→functions→items).
+   * Trocamos por um EXISTS correlacionado, que evita produto cartesiano
+   * e aproveita melhor os índices de functions(triggerid) e items(hostid).
+   */
+  static async getActiveServices(hostid: bigint | number): Promise<
+    Array<{ id: string; description: string; severity: number }>
+  > {
+    const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
+
+    const rows = await prisma.$queryRaw<
+      Array<{ triggerid: bigint; description: string; severity: number }>
+    >`
+      SELECT t.triggerid, t.description, t.priority AS severity
+      FROM triggers t
+      WHERE t.status = 0
+        AND t.priority >= 2
+        AND EXISTS (
+          SELECT 1
+          FROM functions f
+          JOIN items i ON i.itemid = f.itemid
+          WHERE f.triggerid = t.triggerid
+            AND i.hostid = ${hostIdBig}
+        )
+      ORDER BY t.priority DESC, t.description
+    `
+
+    return rows.map((r) => ({
+      id: r.triggerid.toString(),
+      description: r.description,
+      severity: Number(r.severity),
+    }))
+  }
+
+  // ==========================================================
+  // STATUS PING/UPTIME DE TODOS — 3 CTEs + UNION
+  // ==========================================================
+  /**
+   * Otimização: o Python original fazia 3 LATERAL JOINs por host.
+   * Trocamos por 3 CTEs que varrem `items` 3x com filtro de key_ (indexado),
+   * depois LEFT JOIN por hostid. Muito mais rápido em 1000+ hosts.
+   */
+  static async getStatusPingUptimeAll(): Promise<
+    Array<{
+      hostid: string
+      status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
+      host_status: 'ENABLED' | 'DISABLED'
+      icmp_ping: number | null
+      ping_available: boolean
+      latency_ms: number | null
+      uptime_seconds: number | null
+      uptime_days: number | null
+      uptime_available: boolean
+    }>
+  > {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        hostid: bigint
+        host_status: number
+        icmp_ping: number | null
+        latency_seconds: number | null
+        uptime_seconds: bigint | number | null
+      }>
+    >`
+      WITH
+      pings AS (
+        SELECT i.hostid, u.value
+        FROM items i
+        JOIN LATERAL (
+          SELECT value FROM history_uint
+          WHERE itemid = i.itemid
+          ORDER BY clock DESC LIMIT 1
+        ) u ON true
+        WHERE i.key_ = 'icmpping'
+      ),
+      latencias AS (
+        SELECT i.hostid, h.value
+        FROM items i
+        JOIN LATERAL (
+          SELECT value FROM history
+          WHERE itemid = i.itemid
+          ORDER BY clock DESC LIMIT 1
+        ) h ON true
+        WHERE i.key_ = 'icmppingsec'
+      ),
+      uptimes AS (
+        SELECT i.hostid, u.value
+        FROM items i
+        JOIN LATERAL (
+          SELECT value FROM history_uint
+          WHERE itemid = i.itemid
+          ORDER BY clock DESC LIMIT 1
+        ) u ON true
+        WHERE i.key_ = 'system.uptime'
+      )
+      SELECT
+        h.hostid,
+        h.status AS host_status,
+        p.value AS icmp_ping,
+        l.value AS latency_seconds,
+        u.value AS uptime_seconds
+      FROM hosts h
+      LEFT JOIN pings p     ON p.hostid = h.hostid
+      LEFT JOIN latencias l ON l.hostid = h.hostid
+      LEFT JOIN uptimes u   ON u.hostid = h.hostid
+      ORDER BY h.host
+    `
+
+    return rows.map((r) => {
+      const hostEnabled = Number(r.host_status) === 0
+      const icmp = r.icmp_ping !== null ? Number(r.icmp_ping) : null
+
+      let status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
+      if (!hostEnabled) status = 'DISABLED'
+      else if (icmp !== null) status = icmp === 1 ? 'UP' : 'DOWN'
+      else status = 'UNKNOWN'
+
+      const lat = r.latency_seconds !== null ? Number(r.latency_seconds) : null
+      const up = r.uptime_seconds !== null ? Number(r.uptime_seconds) : null
+
+      return {
+        hostid: r.hostid.toString(),
+        status,
+        host_status: hostEnabled ? 'ENABLED' : 'DISABLED',
+        icmp_ping: icmp,
+        ping_available: icmp !== null,
+        latency_ms: lat !== null ? Math.round(lat * 1000 * 100) / 100 : null,
+        uptime_seconds: up,
+        uptime_days: up !== null ? Math.round((up / 86400) * 100) / 100 : null,
+        uptime_available: up !== null,
+      }
+    })
+  }
+
+  // ==========================================================
+  // BUSCAR ITEMID + TYPE (com cache)
+  // ==========================================================
+  private static itemIdCache = new Map<string, { itemid: bigint; value_type: number } | null>()
+
+  /**
+   * Descobre itemid + value_type de um item específico (key_).
+   * Cacheado em memória — itemid e value_type NUNCA mudam em produção.
+   */
+  static async getItemIdAndType(
+    hostid: bigint | number,
+    itemKey: string,
+  ): Promise<{ itemid: bigint; value_type: number } | null> {
+    const cacheKey = `${hostid}:${itemKey}`
+    if (MetricRepository.itemIdCache.has(cacheKey)) {
+      return MetricRepository.itemIdCache.get(cacheKey)!
+    }
+
+    const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
+
+    const rows = await prisma.$queryRaw<
+      Array<{ itemid: bigint; value_type: number }>
+    >`
+      SELECT itemid, value_type
+      FROM items
+      WHERE hostid = ${hostIdBig}
+        AND key_ = ${itemKey}
+      LIMIT 1
+    `
+
+    const result = rows[0]
+      ? { itemid: rows[0].itemid, value_type: Number(rows[0].value_type) }
+      : null
+
+    MetricRepository.itemIdCache.set(cacheKey, result)
+    return result
+  }
+
+  // ==========================================================
+  // SÉRIE POR KEY — 1 query (itemid cacheado)
+  // ==========================================================
+  /**
+   * Otimização: o Python fazia 2 queries (uma para descobrir itemid+type,
+   * outra para a série). Agora o itemid+type é cacheado, e só fazemos
+   * 1 query para a série.
+   */
+  static async getSeriePorKey(
+    hostid: bigint | number,
+    itemKey: string,
+    inicio: string,
+    fim: string,
+  ): Promise<Array<{ data: Date | string; value: number }>> {
+    const { isoParaTimestamp } = await import('../utils/helpers.js')
+
+    const item = await MetricRepository.getItemIdAndType(hostid, itemKey)
+    if (!item) return []
+
+    const inicioTs = isoParaTimestamp(inicio)
+    const fimTs = isoParaTimestamp(fim)
+
+    // Zabbix: 3 = uint, resto = float
+    const tabela = item.value_type === 3 ? 'history_uint' : 'history'
+
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{ data: Date | string; value: string | number | bigint }>
+    >(
+      `SELECT to_timestamp(clock) AS data, value
+       FROM ${tabela}
+       WHERE itemid = $1
+         AND clock BETWEEN $2 AND $3
+       ORDER BY clock`,
+      item.itemid,
+      inicioTs,
+      fimTs,
+    )
+
+    return rows.map((r) => ({ data: r.data, value: Number(r.value) }))
+  }
+
+  // ==========================================================
+  // RESUMO POR ITEM — 1 query
+  // ==========================================================
+  static async getResumoPorItem(
+    itemid: bigint,
+    inicio: string,
+    fim: string,
+    tabela: 'history' | 'history_uint' = 'history',
+  ): Promise<{ min: number | null; avg: number | null; max: number | null } | null> {
+    const { isoParaTimestamp } = await import('../utils/helpers.js')
+    const inicioTs = isoParaTimestamp(inicio)
+    const fimTs = isoParaTimestamp(fim)
+
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{ min: string | null; avg: string | null; max: string | null }>
+    >(
+      `SELECT
+         MIN(value)::numeric AS min,
+         AVG(value)::numeric AS avg,
+         MAX(value)::numeric AS max
+       FROM ${tabela}
+       WHERE itemid = $1
+         AND clock BETWEEN $2 AND $3`,
+      itemid,
+      inicioTs,
+      fimTs,
+    )
+
+    const r = rows[0]
+    if (!r) return null
+
+    return {
+      min: r.min !== null ? Math.round(Number(r.min) * 100) / 100 : null,
+      avg: r.avg !== null ? Math.round(Number(r.avg) * 100) / 100 : null,
+      max: r.max !== null ? Math.round(Number(r.max) * 100) / 100 : null,
+    }
+  }
+
+  // ==========================================================
+  // ITENS (amostra) — com filtro opcional por host
+  // ==========================================================
+  /**
+   * Lista itens ativos. Se `hostid` for passado, filtra por host.
+   * Útil para debug ou como base para "listar itens de um host".
+   */
+  static async listarItensAmostra(
+    hostid?: bigint | number,
+    limit = 10,
+  ): Promise<Array<{ host: string; item: string; key_: string }>> {
+    if (hostid !== undefined) {
+      const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
+      const rows = await prisma.$queryRaw<
+        Array<{ host: string; item: string; key_: string }>
+      >`
+        SELECT h.host, i.name AS item, i.key_
+        FROM items i
+        JOIN hosts h ON h.hostid = i.hostid
+        WHERE i.status = 0
+          AND i.hostid = ${hostIdBig}
+        LIMIT ${limit}
+      `
+      return rows
+    }
+
+    const rows = await prisma.$queryRaw<
+      Array<{ host: string; item: string; key_: string }>
+    >`
+      SELECT h.host, i.name AS item, i.key_
+      FROM items i
+      JOIN hosts h ON h.hostid = i.hostid
+      WHERE i.status = 0
+      LIMIT ${limit}
+    `
+    return rows
+  }
 }

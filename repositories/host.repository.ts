@@ -103,6 +103,7 @@ export class HostRepository {
     >`
       SELECT hostid, host, name, status
       FROM hosts
+      WHERE hostid = ${hostIdBig}
       LIMIT 1
     `
     const r = rows[0]
@@ -260,4 +261,221 @@ export class HostRepository {
     return rows[0]?.hostid ?? null
   }
 
+  // ==========================================================
+  // LISTAR HOSTS COM IP — 1 query
+  // ==========================================================
+  static async listarHostsComIp(): Promise<
+    Array<{ hostid: string; host: string; ip: string | null }>
+  > {
+    const rows = await prisma.$queryRaw<
+      Array<{ hostid: bigint; host: string; ip: string | null }>
+    >`
+      SELECT h.hostid, h.host, i.ip
+      FROM hosts h
+      LEFT JOIN interface i
+        ON i.hostid = h.hostid
+       AND i.main = 1
+      WHERE h.status = 0
+      ORDER BY h.host
+    `
+
+    return rows.map((r) => ({
+      hostid: r.hostid.toString(),
+      host: r.host,
+      ip: r.ip ?? null,
+    }))
+  }
+
+  // ==========================================================
+  // HOST POR ID COM IP + PORTA — 1 query
+  // ==========================================================
+  static async getHostComIp(hostid: bigint | number): Promise<{
+    hostid: string
+    nome: string
+    ip: string | null
+    porta_customizada: string | null
+  } | null> {
+    const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
+
+    const rows = await prisma.$queryRaw<
+      Array<{ hostid: bigint; nome: string; ip: string | null }>
+    >`
+      SELECT h.hostid, h.host AS nome, i.ip
+      FROM hosts h
+      LEFT JOIN interface i
+        ON h.hostid = i.hostid
+       AND i.main = 1
+      WHERE h.hostid = ${hostIdBig}
+      LIMIT 1
+    `
+
+    const r = rows[0]
+    if (!r) return null
+
+    const { gerarPortaDoIp } = await import('../utils/helpers.js')
+
+    return {
+      hostid: r.hostid.toString(),
+      nome: r.nome,
+      ip: r.ip ?? null,
+      porta_customizada: gerarPortaDoIp(r.ip),
+    }
+  }
+
+  // ==========================================================
+  // HOSTS + IP + SO — 3 queries totais (era 1 + N)
+  // ==========================================================
+  /**
+   * Otimização chave: a detecção de SO é feita em BATCH para todos os hosts
+   * com 2 queries únicas (uma para sw.os/uname, outra para os fallbacks).
+   */
+  static async listarHostsComIpESo(): Promise<
+    Array<{
+      groupid: string
+      nome_grupo: string
+      hostid: string
+      nome_host: string
+      ip: string | null
+      port: number | null
+      porta_customizada: string | null
+      os: { type: string; name: string | null } | null
+    }>
+  > {
+    const { gerarPortaDoIp } = await import('../utils/helpers.js')
+
+    // ─── 1) Hosts + grupos + IP ───
+    const rows = await prisma.$queryRaw<
+      Array<{
+        groupid: bigint
+        nome_grupo: string
+        hostid: bigint
+        nome_host: string
+        ip: string | null
+        port: number | null
+      }>
+    >`
+      SELECT
+        g.groupid, g.name AS nome_grupo,
+        h.hostid, h.host AS nome_host,
+        i.ip, i.port
+      FROM hstgrp g
+      JOIN hosts_groups hg ON g.groupid = hg.groupid
+      JOIN hosts h ON hg.hostid = h.hostid
+      LEFT JOIN interface i
+        ON h.hostid = i.hostid
+       AND i.main = 1
+      WHERE h.status = 0
+        AND h.flags = 0
+      ORDER BY g.name, h.host
+    `
+
+    if (rows.length === 0) return []
+
+    // IDs únicos (alguns hosts podem aparecer em vários grupos)
+    const hostidsUnicos = Array.from(new Set(rows.map((r) => r.hostid.toString())))
+    const placeholders = hostidsUnicos.map((_, i) => `$${i + 1}`).join(', ')
+
+    // ─── 2) SO em BATCH — sw.os + uname para todos de uma vez ───
+    const soRows = await prisma.$queryRawUnsafe<
+      Array<{ hostid: bigint; key_: string; value: string | null }>
+    >(
+      `SELECT i.hostid, i.key_, hs.value
+       FROM items i
+       LEFT JOIN LATERAL (
+         SELECT value FROM history_str
+         WHERE itemid = i.itemid
+         ORDER BY clock DESC LIMIT 1
+       ) hs ON true
+       WHERE i.hostid IN (${placeholders})
+         AND i.key_ IN ('system.sw.os', 'system.uname')`,
+      ...hostidsUnicos,
+    )
+
+    // Agrupa resultado por hostid
+    const soMap = new Map<string, { sw_os: string | null; uname: string | null }>()
+    for (const r of soRows) {
+      const id = r.hostid.toString()
+      const cur = soMap.get(id) ?? { sw_os: null, uname: null }
+      if (r.key_ === 'system.sw.os') cur.sw_os = r.value
+      if (r.key_ === 'system.uname') cur.uname = r.value
+      soMap.set(id, cur)
+    }
+
+    // ─── 3) Fallback: hosts que não têm sw.os nem uname ───
+    // Descobre se tem item Windows (perf_counter, vfs.fs.size[C:]) ou Linux (system.cpu, vm.memory)
+    const hostidsSemSo = hostidsUnicos.filter((id) => {
+      const s = soMap.get(id)
+      return !s || (!s.sw_os && !s.uname)
+    })
+
+    let fallbackMap = new Map<string, { type: string; name: string | null }>()
+
+    if (hostidsSemSo.length > 0) {
+      const placeholdersFb = hostidsSemSo.map((_, i) => `$${i + 1}`).join(', ')
+
+      const fbRows = await prisma.$queryRawUnsafe<
+        Array<{ hostid: bigint; is_windows: number; is_linux: number }>
+      >(
+        `SELECT
+           hostid,
+           MAX(CASE WHEN (
+             key_ LIKE 'vfs.fs.size[C:%'
+             OR key_ LIKE 'perf_counter[%'
+             OR key_ LIKE 'perf_counter_en[%'
+           ) THEN 1 ELSE 0 END) AS is_windows,
+           MAX(CASE WHEN (
+             key_ LIKE 'system.cpu%'
+             OR key_ LIKE 'vfs.fs%'
+             OR key_ LIKE 'vm.memory%'
+           ) THEN 1 ELSE 0 END) AS is_linux
+         FROM items
+         WHERE hostid IN (${placeholdersFb})
+         GROUP BY hostid`,
+        ...hostidsSemSo,
+      )
+
+      fallbackMap = new Map<string, { type: string; name: string | null }>(
+        fbRows.map((r) => {
+          const id = r.hostid.toString()
+          if (Number(r.is_windows) === 1) {
+            return [id, { type: 'windows', name: 'Windows' }] as const
+          }
+          if (Number(r.is_linux) === 1) {
+            return [id, { type: 'linux', name: 'Linux' }] as const
+          }
+          return [id, { type: 'unknown', name: null }] as const
+        }),
+      )
+    }
+
+    // ─── 4) Monta o resultado final ───
+    return rows.map((r) => {
+      const id = r.hostid.toString()
+      const soInfo = soMap.get(id)
+      let os: { type: string; name: string | null } | null = null
+
+      if (soInfo?.sw_os) {
+        os = {
+          type: soInfo.sw_os.toLowerCase().includes('windows') ? 'windows' : 'linux',
+          name: soInfo.sw_os,
+        }
+      } else if (soInfo?.uname) {
+        os = { type: 'linux', name: 'Linux' }
+      } else {
+        const fb = fallbackMap.get(id)
+        os = fb ?? { type: 'unknown', name: null }
+      }
+
+      return {
+        groupid: r.groupid.toString(),
+        nome_grupo: r.nome_grupo,
+        hostid: id,
+        nome_host: r.nome_host,
+        ip: r.ip ?? null,
+        port: r.port ?? null,
+        porta_customizada: gerarPortaDoIp(r.ip),
+        os,
+      }
+    })
+  }
 }

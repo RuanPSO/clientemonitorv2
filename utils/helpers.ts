@@ -222,3 +222,48 @@ export function gerarHashWerkzeug(senha: string): string {
 
   return `pbkdf2:${digest}:${iterations}$${salt}$${hash}`
 }
+
+// utils/helpers.ts
+
+/**
+ * Gera a porta customizada a partir do IP, garantindo SEMPRE 5 dígitos.
+ *
+ * Regra:
+ *  - O 3º octeto (C) é mantido como está (1, 2 ou 3 dígitos)
+ *  - O 4º octeto (D) é preenchido com zeros à esquerda para completar 5 dígitos
+ *  - Se D tiver mais dígitos que o disponível, é truncado (raro)
+ *
+ * Exemplos:
+ *   10.86.23.168    → "23168"
+ *   10.86.33.19     → "33019"
+ *   10.86.18.2      → "18002"
+ *   177.137.252.77  → "25277"
+ */
+export function gerarPortaDoIp(ip: string | null | undefined): string | null {
+  if (!ip) return null
+
+  const partes = ip.split('.')
+  if (partes.length !== 4) return null
+
+  const terceiro = partes[2]
+  if (terceiro === undefined) return null
+
+  const quarto = Number(partes[3])
+  if (!Number.isInteger(quarto) || quarto < 0 || quarto > 255) return null
+
+  const quartoStr = String(quarto)
+
+  // Quantos dígitos o 3º octeto pode ter, deixando espaço para o 4º
+  const maxDigitosC = 5 - quartoStr.length
+  if (maxDigitosC <= 0) return null
+
+  // Usa o C completo se couber; senão, pega os últimos dígitos que caibam
+  const terceiroFmt =
+    terceiro.length <= maxDigitosC ? terceiro : terceiro.slice(-maxDigitosC)
+
+  // Preenche o D à esquerda para completar 5 dígitos
+  const digitosParaPreencher = 5 - terceiroFmt.length
+  const quartoFmt = quartoStr.padStart(digitosParaPreencher, '0')
+
+  return terceiroFmt + quartoFmt
+}

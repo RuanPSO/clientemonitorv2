@@ -119,5 +119,125 @@ router.get(
   },
 )
 
+// ─────────────────────────────────────────────────────────────
+// GET /hosts/com-ip
+// Lista hosts com IP
+// ─────────────────────────────────────────────────────────────
+router.get('/hosts/com-ip', validarToken, async (_req: Request, res: Response) => {
+  try {
+    const dados = await ZabbixService.listarHostsComIp()
+    res.json(dados)
+  } catch (e: unknown) {
+    console.error('[hosts/com-ip]', e)
+    res.status(500).json({ erro: (e as Error).message })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// GET /hosts/com-ip-e-so
+// Lista hosts com IP + SO + porta customizada
+// ─────────────────────────────────────────────────────────────
+router.get('/hosts/com-ip-e-so', validarToken, async (_req: Request, res: Response) => {
+  try {
+    const dados = await ZabbixService.listarHostsComIpESo()
+    res.json(dados)
+  } catch (e: unknown) {
+    console.error('[hosts/com-ip-e-so]', e)
+    res.status(500).json({ erro: (e as Error).message })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// GET /hosts/status-ping-uptime
+// Status de TODOS os hosts em 1 chamada
+// ─────────────────────────────────────────────────────────────
+router.get('/hosts/status-ping-uptime', validarToken, async (_req: Request, res: Response) => {
+  try {
+    const dados = await ZabbixService.getStatusPingUptimeAll()
+    res.json(dados)
+  } catch (e: unknown) {
+    console.error('[hosts/status-ping-uptime]', e)
+    res.status(500).json({ erro: (e as Error).message })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// GET /host/:hostid/com-ip
+// Host + IP + porta customizada
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/host/:hostid/com-ip',
+  validarToken,
+  async (req: Request<{ hostid: string }>, res: Response) => {
+    try {
+      const hostid = parseHostid(req.params.hostid)
+      const dados = await ZabbixService.getHostComIp(hostid)
+      if (!dados) return res.status(404).json({ erro: 'Host não encontrado' })
+      res.json(dados)
+    } catch (e: unknown) {
+      res.status(400).json({ erro: (e as Error).message })
+    }
+  },
+)
+
+// ─────────────────────────────────────────────────────────────
+// GET /host/:hostid/active-services
+// Triggers ativas com severity >= 2
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/host/:hostid/active-services',
+  validarToken,
+  async (req: Request<{ hostid: string }>, res: Response) => {
+    try {
+      const hostid = parseHostid(req.params.hostid)
+      const dados = await ZabbixService.getActiveServices(hostid)
+      res.json(dados)
+    } catch (e: unknown) {
+      res.status(400).json({ erro: (e as Error).message })
+    }
+  },
+)
+
+// ─────────────────────────────────────────────────────────────
+// GET /host/:hostid/relatorio-periodo
+// Resumo min/avg/max de CPU, memória e disponibilidade
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/host/:hostid/relatorio-periodo',
+  validarToken,
+  async (req: Request<{ hostid: string }>, res: Response) => {
+    try {
+      const hostid = parseHostid(req.params.hostid)
+      const { inicio, fim } = parsePeriodo(req.query as any, 1)
+      const dados = await ZabbixService.getRelatorioPorPeriodo(hostid, inicio, fim)
+      res.json({ hostid: hostid.toString(), inicio, fim, ...dados })
+    } catch (e: unknown) {
+      res.status(400).json({ erro: (e as Error).message })
+    }
+  },
+)
+
+// ─────────────────────────────────────────────────────────────
+// GET /host/:hostid/serie?key=...&inicio=...&fim=...
+// Série de um item específico
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/host/:hostid/serie',
+  validarToken,
+  async (req: Request<{ hostid: string }>, res: Response) => {
+    try {
+      const hostid = parseHostid(req.params.hostid)
+      const { key } = req.query as { key?: string }
+      const { inicio, fim } = parsePeriodo(req.query as any, 1)
+
+      if (!key) return res.status(400).json({ erro: 'Parâmetro key é obrigatório' })
+
+      const dados = await ZabbixService.getSeriePorKey(hostid, key, inicio, fim)
+      res.json({ hostid: hostid.toString(), key, inicio, fim, pontos: dados })
+    } catch (e: unknown) {
+      res.status(400).json({ erro: (e as Error).message })
+    }
+  },
+)
 
 export default router
