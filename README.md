@@ -23,4 +23,5 @@ Esta branch representa a evolução da solução em migração de Python para Ty
 - portal-interno-api
 - backend-portal-interno
 
+- Atualização - parametro de desenvolvimento ativos para adicionar novas funções e novas rotas para aplicações
 > Sugestão principal: portal-interno-backend

@@ -16,9 +16,9 @@ import { obterSla, formatarTempo, categorizarServico, fmtUptime, type SlaStatus,
 const TTL = {
   GRUPOS:                5 * 60_000, // 5 min  — grupos do Zabbix raramente mudam
   HOSTS_DO_GRUPO:        60_000,     // 1 min  — lista de hosts do grupo
-  HOST_DETAILS:          30_000,     // 30 s   — métricas do host (CPU, RAM, disco…)
-  HOST_BASICO:           30_000,     // 30 s   — nome/status do host
-  HOST_SERVICES:         30_000,     // 30 s   — serviços ON/OFF do host
+  HOST_DETAILS:          70_000,     // 30 s   — métricas do host (CPU, RAM, disco…)
+  HOST_BASICO:           70_000,     // 30 s   — nome/status do host
+  HOST_SERVICES:         70_000,     // 30 s   — serviços ON/OFF do host
   HOST_PROBLEMAS:        30_000,     // 30 s   — problemas recentes
   HOST_RELATORIO:        60_000,     // 1 min  — séries históricas
   HOST_SLA:              60_000,     // 1 min  — SLA agregado
@@ -26,12 +26,12 @@ const TTL = {
   HOST_TIMELINE:         60_000,     // 1 min
   HOSTS_COM_IP:          60_000,     // 1 min  — lista de hosts com IP
   HOSTS_COM_IP_E_SO:     5 * 60_000, // 5 min  — com detecção de SO (pesado)
-  STATUS_ALL:            15_000,     // 15 s   — status de todos os hosts
+  STATUS_ALL:            30_000,     // 15 s   — status de todos os hosts
   ACTIVE_SERVICES:       30_000,     // 30 s   — triggers ativas
   RELATORIO_PERIODO:     60_000,     // 1 min  — resumos min/avg/max
   SERIE_POR_KEY:         60_000,     // 1 min  — série de item específico
   HOST_COM_IP:           30_000,     // 30 s
-
+  STATUS_PING_UPTIME:    70_000
 } as const
 
 
@@ -142,7 +142,19 @@ export class ZabbixService {
   private static async _getHostDetailsUncached(hostid: bigint | number): Promise<HostDetails> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
 
-    // 1) Coleta tudo que é independente em paralelo
+    // Helper que mede o tempo de cada chamada
+    const p = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+      const start = Date.now()
+      try {
+        const r = await fn()
+        console.log(`[timing host=${hostIdBig}] ${label}: ${Date.now() - start}ms`)
+        return r
+      } catch (e) {
+        console.log(`[timing host=${hostIdBig}] ${label} ERRO: ${(e as Error).message}`)
+        throw e
+      }
+    }
+
     const [
       tipoInfo,
       osDetectado,
@@ -156,22 +168,21 @@ export class ZabbixService {
       gruposHost,
       interfaceType,
     ] = await Promise.all([
-      MetricRepository.detectarTipoHost(hostIdBig),
-      MetricRepository.detectarSo(hostIdBig),
-      MetricRepository.getStatus(hostIdBig),
-      MetricRepository.getCpu(hostIdBig),
-      MetricRepository.getMemoria(hostIdBig),
-      MetricRepository.getDiscos(hostIdBig),
-      MetricRepository.getUptime(hostIdBig),
-      TimelineRepository.getCurrentServiceStatus(hostIdBig),
-      HostRepository.getTemplatesDoHost(hostIdBig),
-      HostRepository.getGruposDoHost(hostIdBig),
-      HostRepository.getInterfaceType(hostIdBig),
+      p('detectarTipoHost', () => MetricRepository.detectarTipoHost(hostIdBig)),
+      p('detectarSo', () => MetricRepository.detectarSo(hostIdBig)),
+      p('getStatus', () => MetricRepository.getStatus(hostIdBig)),
+      p('getCpu', () => MetricRepository.getCpu(hostIdBig)),
+      p('getMemoria', () => MetricRepository.getMemoria(hostIdBig)),
+      p('getDiscos', () => MetricRepository.getDiscos(hostIdBig)),
+      p('getUptime', () => MetricRepository.getUptime(hostIdBig)),
+      p('getCurrentServiceStatus', () => TimelineRepository.getCurrentServiceStatus(hostIdBig)),
+      p('getTemplatesDoHost', () => HostRepository.getTemplatesDoHost(hostIdBig)),
+      p('getGruposDoHost', () => HostRepository.getGruposDoHost(hostIdBig)),
+      p('getInterfaceType', () => HostRepository.getInterfaceType(hostIdBig)),
     ])
 
     const osInfo = tipoInfo ?? osDetectado
 
-    // 2) Classificação visual (com os dados que já temos)
     const classificacao = HostClassifier.classify({
       hostid: hostIdBig,
       osData: osInfo && osInfo.type !== 'network' ? osInfo : null,
@@ -181,7 +192,6 @@ export class ZabbixService {
       interfaceType,
     })
 
-    // 3) Host de rede → payload simplificado
     if (tipoInfo && tipoInfo.type === 'network') {
       return {
         hostid: hostIdBig.toString(),
@@ -196,7 +206,6 @@ export class ZabbixService {
       }
     }
 
-    // 4) Host de servidor → payload completo
     return {
       hostid: hostIdBig.toString(),
       status,
@@ -209,7 +218,6 @@ export class ZabbixService {
       classificacao,
     }
   }
-
   // ───────────────────────────────────────────────────────────
   // COLETA COMPLETA (sem cache — pesado e raro)
   // ───────────────────────────────────────────────────────────
@@ -586,6 +594,16 @@ export class ZabbixService {
       TTL.RELATORIO_PERIODO,
     )
   }
+
+  static async getStatusPingUptime(hostid: bigint | number) {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:status-ping-uptime`,
+      () => MetricRepository.getStatusPingUptime(hostid),
+      TTL.STATUS_PING_UPTIME,
+    )
+  }
+
 }
 
 export interface HostFull {

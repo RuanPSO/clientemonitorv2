@@ -1295,4 +1295,121 @@ export class MetricRepository {
     `
     return rows
   }
+
+  // ==========================================================
+  // STATUS PING/UPTIME DE UM HOST — 1 query única
+  // ==========================================================
+  /**
+   * Status (UP/DOWN), ping, latência e uptime de UM host específico.
+   * Muito mais rápido que getStatusPingUptimeAll() — usa WHERE hostid = X.
+   */
+  static async getStatusPingUptime(hostid: bigint | number): Promise<{
+    hostid: string
+    status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
+    host_status: 'ENABLED' | 'DISABLED'
+    icmp_ping: number | null
+    ping_available: boolean
+    latency_ms: number | null
+    uptime_seconds: number | null
+    uptime_days: number | null
+    uptime_available: boolean
+  }> {
+    const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
+
+    const rows = await prisma.$queryRaw<
+      Array<{
+        hostid: bigint
+        host_status: number
+        icmp_ping: number | null
+        latency_seconds: number | null
+        uptime_seconds: bigint | number | null
+      }>
+    >`
+      WITH
+      pings AS (
+        SELECT u.value
+        FROM items i
+        JOIN LATERAL (
+          SELECT value FROM history_uint
+          WHERE itemid = i.itemid
+          ORDER BY clock DESC LIMIT 1
+        ) u ON true
+        WHERE i.hostid = ${hostIdBig}
+          AND i.key_ = 'icmpping'
+        LIMIT 1
+      ),
+      latencias AS (
+        SELECT h.value
+        FROM items i
+        JOIN LATERAL (
+          SELECT value FROM history
+          WHERE itemid = i.itemid
+          ORDER BY clock DESC LIMIT 1
+        ) h ON true
+        WHERE i.hostid = ${hostIdBig}
+          AND i.key_ = 'icmppingsec'
+        LIMIT 1
+      ),
+      uptimes AS (
+        SELECT u.value
+        FROM items i
+        JOIN LATERAL (
+          SELECT value FROM history_uint
+          WHERE itemid = i.itemid
+          ORDER BY clock DESC LIMIT 1
+        ) u ON true
+        WHERE i.hostid = ${hostIdBig}
+          AND i.key_ = 'system.uptime'
+        LIMIT 1
+      )
+      SELECT
+        h.hostid,
+        h.status AS host_status,
+        (SELECT value FROM pings) AS icmp_ping,
+        (SELECT value FROM latencias) AS latency_seconds,
+        (SELECT value FROM uptimes) AS uptime_seconds
+      FROM hosts h
+      WHERE h.hostid = ${hostIdBig}
+      LIMIT 1
+    `
+
+    const r = rows[0]
+    if (!r) {
+      return {
+        hostid: hostIdBig.toString(),
+        status: 'UNKNOWN',
+        host_status: 'DISABLED',
+        icmp_ping: null,
+        ping_available: false,
+        latency_ms: null,
+        uptime_seconds: null,
+        uptime_days: null,
+        uptime_available: false,
+      }
+    }
+
+    const hostEnabled = Number(r.host_status) === 0
+    const icmp = r.icmp_ping !== null ? Number(r.icmp_ping) : null
+
+    let status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
+    if (!hostEnabled) status = 'DISABLED'
+    else if (icmp !== null) status = icmp === 1 ? 'UP' : 'DOWN'
+    else status = 'UNKNOWN'
+
+    const lat = r.latency_seconds !== null ? Number(r.latency_seconds) : null
+    const up = r.uptime_seconds !== null ? Number(r.uptime_seconds) : null
+
+    return {
+      hostid: r.hostid.toString(),
+      status,
+      host_status: hostEnabled ? 'ENABLED' : 'DISABLED',
+      icmp_ping: icmp,
+      ping_available: icmp !== null,
+      latency_ms: lat !== null ? Math.round(lat * 1000 * 100) / 100 : null,
+      uptime_seconds: up,
+      uptime_days: up !== null ? Math.round((up / 86400) * 100) / 100 : null,
+      uptime_available: up !== null,
+    }
+  }
+
 }

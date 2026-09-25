@@ -75,6 +75,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 // ─── Inicialização ───
 const PORT = Number(process.env.PORT) || 3000
-app.listen(PORT, () => {
-  console.log(`🚀 API Zabbix rodando em http://localhost:${PORT}`)
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 API Zabbix rodando em http://0.0.0.0:${PORT}`)
+  console.log(`   Local:    http://localhost:${PORT}`)
+  console.log(`   Rede:     http://10.86.26.194:${PORT}`)
 })

@@ -240,4 +240,51 @@ router.get(
   },
 )
 
+
+// ─────────────────────────────────────────────────────────────
+// GET /host/:hostid/metrics
+// Payload COMPOSTO idêntico ao get_host_metrics() do Python
+// ─────────────────────────────────────────────────────────────
+router.get(
+  '/host/:hostid/metrics',
+  validarToken,
+  async (req: Request<{ hostid: string }>, res: Response) => {
+    try {
+      const hostid = parseHostid(req.params.hostid)
+
+      // ✅ Agora usa getStatusPingUptime (1 host) em vez de All (todos)
+      const [details, comIp, basico, statusInfo] = await Promise.all([
+        ZabbixService.getHostDetails(hostid),
+        ZabbixService.getHostComIp(hostid),
+        ZabbixService.getHostBasico(hostid),
+        ZabbixService.getStatusPingUptime(hostid),   // ← MUDOU
+      ])
+
+      res.json({
+        hostid: hostid.toString(),
+        nome: basico?.host ?? null,
+        ip: comIp?.ip ?? null,
+        porta_customizada: comIp?.porta_customizada ?? null,
+
+        status: statusInfo.status,
+        host_status: statusInfo.host_status,
+        icmp_ping: statusInfo.icmp_ping,
+        latency_ms: statusInfo.latency_ms,
+        uptime_seconds: statusInfo.uptime_seconds,
+        uptime_days: statusInfo.uptime_days,
+
+        cpu: details.cpu,
+        memoria: details.memoria,
+        discos: details.discos,
+        os: details.os?.name ?? details.os?.type?.toUpperCase() ?? 'UNKNOWN',
+        os_type: details.os?.type ?? 'unknown',
+        services: details.services,
+      })
+    } catch (e: unknown) {
+      console.error('[host/metrics]', e)
+      res.status(400).json({ erro: (e as Error).message })
+    }
+  },
+)
+
 export default router

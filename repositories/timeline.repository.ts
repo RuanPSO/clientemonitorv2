@@ -246,7 +246,7 @@ export class TimelineRepository {
 
   // ==========================================================
   // 7. STATUS ATUAL DOS SERVIÇOS (ON/OFF)
-  //    Versão otimizada: 1 query com DISTINCT ON em vez de N+1.
+  //    Otimizado: LIMIT + IN em vez de JOIN
   // ==========================================================
   static async getCurrentServiceStatus(
     hostid: bigint | number,
@@ -269,12 +269,14 @@ export class TimelineRepository {
           AND key_ NOT LIKE 'proc.num%'
           AND name NOT LIKE 'State of service "{#SERVICE.NAME}" ({#SERVICE.DISPLAYNAME})%'
           AND name NOT LIKE 'Service GG%'
+        ORDER BY itemid
+        LIMIT 300
       ),
       last_values AS (
         SELECT DISTINCT ON (h.itemid)
           h.itemid, h.value, h.clock
         FROM history_uint h
-        JOIN services s ON s.itemid = h.itemid
+        WHERE h.itemid IN (SELECT itemid FROM services)
         ORDER BY h.itemid, h.clock DESC
       )
       SELECT

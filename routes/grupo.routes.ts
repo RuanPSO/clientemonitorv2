@@ -54,4 +54,32 @@ router.get(
   },
 )
 
+
+// ─────────────────────────────────────────────────────────────
+// GET /grupos/com-hosts
+// Lista grupos com hosts (equivalente a get_grupos_com_hosts())
+// ─────────────────────────────────────────────────────────────
+router.get('/grupos/com-hosts', validarToken, async (_req, res: Response) => {
+  try {
+    const grupos = await ZabbixService.listarGrupos()
+    const resultado = await Promise.all(
+      grupos.map(async (g) => {
+        const hosts = await ZabbixService.getHostsDoGrupo(BigInt(g.groupid))
+        return {
+          groupid: g.groupid,
+          grupo: g.name,
+          hosts: hosts.map((h) => ({
+            hostid: h.hostid,
+            hostname: h.hostname,
+          })),
+        }
+      }),
+    )
+    res.json(resultado)
+  } catch (e: unknown) {
+    console.error('[grupos/com-hosts]', e)
+    res.status(500).json({ erro: (e as Error).message })
+  }
+})
+
 export default router
