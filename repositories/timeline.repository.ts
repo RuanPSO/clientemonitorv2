@@ -137,7 +137,6 @@ export class TimelineRepository {
     changes: ChangeRow[],
     fimTs: number,
   ): ServiceSegments[] {
-    // Agrupa mudanças por item
     const grouped: ChangesMap = new Map()
     for (const c of changes) {
       const key = c.itemid.toString()
@@ -152,7 +151,6 @@ export class TimelineRepository {
       const itemidStr = svc.itemid.toString()
       const serviceChanges = grouped.get(itemidStr) ?? []
 
-      // Estado inicial
       let currentValue: number | null = null
       let currentClock: number | null = null
 
@@ -164,7 +162,6 @@ export class TimelineRepository {
 
       const segments: TimelineSegment[] = []
 
-      // Se não tem estado anterior, usa primeira mudança
       if (currentClock === null && serviceChanges.length > 0) {
         currentClock = serviceChanges[0]!.clock
         currentValue = serviceChanges[0]!.value
@@ -177,7 +174,6 @@ export class TimelineRepository {
           continue
         }
 
-        // Fecha segmento anterior
         segments.push({
           start: currentClock,
           end: change.clock,
@@ -189,7 +185,6 @@ export class TimelineRepository {
         currentValue = change.value
       }
 
-      // Fecha último segmento até fim do período
       if (currentClock !== null) {
         segments.push({
           start: currentClock,
@@ -219,7 +214,7 @@ export class TimelineRepository {
   }
 
   // ==========================================================
-  // 6. FUNÇÃO PRINCIPAL
+  // 6. FUNÇÃO PRINCIPAL DA TIMELINE
   // ==========================================================
   static async getHostTimeline(
     hostid: bigint | number,
@@ -246,7 +241,8 @@ export class TimelineRepository {
 
   // ==========================================================
   // 7. STATUS ATUAL DOS SERVIÇOS (ON/OFF)
-  //    Otimizado: LIMIT + IN em vez de JOIN
+  //    ✅ FIEL AO PYTHON: retorna o `name` cru, sem extração.
+  //    O frontend faz o parsing para exibir o nome bonito.
   // ==========================================================
   static async getCurrentServiceStatus(
     hostid: bigint | number,
@@ -270,7 +266,6 @@ export class TimelineRepository {
           AND name NOT LIKE 'State of service "{#SERVICE.NAME}" ({#SERVICE.DISPLAYNAME})%'
           AND name NOT LIKE 'Service GG%'
         ORDER BY itemid
-        LIMIT 300
       ),
       last_values AS (
         SELECT DISTINCT ON (h.itemid)
@@ -298,7 +293,7 @@ export class TimelineRepository {
         else status = 'UNKNOWN'
       }
       return {
-        name: r.name,
+        name: r.name,   // ✅ name cru (fiel ao Python)
         status,
         last_update: r.clock !== null && r.clock !== undefined ? Number(r.clock) : null,
       }

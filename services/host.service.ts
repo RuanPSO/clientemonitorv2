@@ -1,3 +1,4 @@
+// services/host.service.ts
 import { MetricRepository } from '../repositories/metric.repository.js'
 import { TimelineRepository, type CurrentServiceStatus } from '../repositories/timeline.repository.js'
 
