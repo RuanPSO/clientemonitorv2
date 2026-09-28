@@ -68,22 +68,6 @@ export class MetricRepository {
   // SISTEMA OPERACIONAL
   // ============================================================
 
-  /**
-   * Mantido para compatibilidade. Agora não é mais chamado internamente
-   * (detectarSo unifica sw.os + uname em 1 query), mas outros módulos podem usar.
-   */
-  static async getSystemSwOs(hostid: bigint): Promise<string | null> {
-    const rows = await prisma.$queryRaw<Array<{ value: string }>>`
-      SELECT hs.value
-      FROM items i
-      JOIN history_str hs ON hs.itemid = i.itemid
-      WHERE i.hostid = ${hostid} AND i.key_ = 'system.sw.os'
-      ORDER BY hs.clock DESC
-      LIMIT 1
-    `
-    return rows[0]?.value ?? null
-  }
-
   static async getSystemUname(hostid: bigint): Promise<string | null> {
     const rows = await prisma.$queryRaw<Array<{ value: string }>>`
       SELECT hs.value
@@ -185,13 +169,15 @@ export class MetricRepository {
   /**
    * getCpu — 1 query única (antes: 3 buscando item + 1 valor).
    */
-  static async getCpu(hostid: bigint) {
+  static async getCpu(
+    hostid: bigint,
+  ): Promise<{ used: number; free: number; total: number } | null> {
     const rows = await prisma.$queryRaw<
       Array<{ itemid: bigint; key_: string; value: number | null }>
     >`
       SELECT i.itemid, i.key_, h.value
       FROM items i
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (                                 -- ← INNER JOIN (era LEFT)
         SELECT value FROM history
         WHERE itemid = i.itemid
         ORDER BY clock DESC
@@ -213,7 +199,7 @@ export class MetricRepository {
     `
 
     const row = rows[0]
-    if (row === undefined || row.value === null) return null
+    if (row === undefined) return null
 
     const numValue = Number(row.value)
     const used = row.key_.toLowerCase().includes('idle') ? 100 - numValue : numValue
@@ -235,11 +221,13 @@ export class MetricRepository {
    *  1ª: pused (float → history)
    *  2ª: total + available (int → history_uint)
    */
-  static async getMemoria(hostid: bigint) {
+  static async getMemoria(
+    hostid: bigint,
+  ): Promise<{ percent: number; used_gb: number; total_gb: number; free_gb: number } | null> {
     const pusedRows = await prisma.$queryRaw<Array<{ value: number | null }>>`
       SELECT h.value
       FROM items i
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (                                -- ← INNER (era LEFT)
         SELECT value FROM history
         WHERE itemid = i.itemid
         ORDER BY clock DESC
@@ -255,7 +243,7 @@ export class MetricRepository {
     >`
       SELECT i.key_, u.value
       FROM items i
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (                                -- ← INNER (era LEFT)
         SELECT value FROM history_uint
         WHERE itemid = i.itemid
         ORDER BY clock DESC
@@ -297,7 +285,7 @@ export class MetricRepository {
     const rows = await prisma.$queryRaw<Array<{ value: bigint | number | null }>>`
       SELECT u.value
       FROM items i
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (                                -- ← INNER (era LEFT)
         SELECT value FROM history_uint
         WHERE itemid = i.itemid
         ORDER BY clock DESC
@@ -325,7 +313,7 @@ export class MetricRepository {
     const rows = await prisma.$queryRaw<Array<{ value: bigint | number | null }>>`
       SELECT u.value
       FROM items i
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (                                -- ← INNER (era LEFT)
         SELECT value FROM history_uint
         WHERE itemid = i.itemid
         ORDER BY clock DESC
@@ -354,7 +342,7 @@ export class MetricRepository {
     >`
       SELECT i.itemid, i.key_, h.value
       FROM items i
-      LEFT JOIN LATERAL (
+      JOIN LATERAL (                                -- ← INNER (era LEFT)
         SELECT value FROM history
         WHERE itemid = i.itemid
         ORDER BY clock DESC
