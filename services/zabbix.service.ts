@@ -11,31 +11,28 @@ import { HostClassifier, type ClassificacaoHost } from './host-classifier.servic
 import { obterSla, formatarTempo, categorizarServico, fmtUptime, type SlaStatus, type CategoriaServico } from '../utils/helpers.js'
 
 // =============================================================
-// TTLs — ajuste conforme a volatilidade dos dados
+// TTLs
 // =============================================================
 const TTL = {
-  GRUPOS:                5 * 60_000, // 5 min  — grupos do Zabbix raramente mudam
-  HOSTS_DO_GRUPO:        60_000,     // 1 min  — lista de hosts do grupo
-  HOST_DETAILS:          70_000,     // 30 s   — métricas do host (CPU, RAM, disco…)
-  HOST_BASICO:           70_000,     // 30 s   — nome/status do host
-  HOST_SERVICES:         70_000,     // 30 s   — serviços ON/OFF do host
-  HOST_PROBLEMAS:        30_000,     // 30 s   — problemas recentes
-  HOST_RELATORIO:        60_000,     // 1 min  — séries históricas
-  HOST_SLA:              60_000,     // 1 min  — SLA agregado
-  HOST_SERVICES_HISTORY: 60_000,     // 1 min
-  HOST_TIMELINE:         60_000,     // 1 min
-  HOSTS_COM_IP:          60_000,     // 1 min  — lista de hosts com IP
-  HOSTS_COM_IP_E_SO:     5 * 60_000, // 5 min  — com detecção de SO (pesado)
-  STATUS_ALL:            30_000,     // 15 s   — status de todos os hosts
-  ACTIVE_SERVICES:       30_000,     // 30 s   — triggers ativas
-  RELATORIO_PERIODO:     60_000,     // 1 min  — resumos min/avg/max
-  SERIE_POR_KEY:         60_000,     // 1 min  — série de item específico
-  HOST_COM_IP:           30_000,     // 30 s
-  STATUS_PING_UPTIME:    70_000
+  GRUPOS:                5 * 60_000,
+  HOSTS_DO_GRUPO:        60_000,
+  HOST_DETAILS:          70_000,
+  HOST_BASICO:           70_000,
+  HOST_SERVICES:         70_000,
+  HOST_PROBLEMAS:        30_000,
+  HOST_RELATORIO:        60_000,
+  HOST_SLA:              60_000,
+  HOST_SERVICES_HISTORY: 60_000,
+  HOST_TIMELINE:         60_000,
+  HOSTS_COM_IP:          60_000,
+  HOSTS_COM_IP_E_SO:     5 * 60_000,
+  STATUS_ALL:            30_000,
+  ACTIVE_SERVICES:       30_000,
+  RELATORIO_PERIODO:     60_000,
+  SERIE_POR_KEY:         60_000,
+  HOST_COM_IP:           30_000,
+  STATUS_PING_UPTIME:    70_000,
 } as const
-
-
-
 
 // =============================================================
 // TIPOS PÚBLICOS
@@ -110,10 +107,6 @@ export class ZabbixService {
     )
   }
 
-  /**
-   * Dispatcher (opção B): recebe ID numérico ou nome, decide qual usar.
-   * Retorna sempre no formato { tipo, chave, hosts }.
-   */
   static async getHostsPorChave(chave: string): Promise<{
     tipo: 'id' | 'nome'
     chave: string
@@ -127,7 +120,38 @@ export class ZabbixService {
   }
 
   // ───────────────────────────────────────────────────────────
-  // DETALHES DO HOST (com classificação — opção B)
+  // ✅ NOVO — GRUPOS COM HOSTS EM 2 QUERIES (era 1 + N)
+  // Mesmo formato de resposta de /grupos/com-hosts atual.
+  // ───────────────────────────────────────────────────────────
+  static async listarGruposComHosts(): Promise<
+    Array<{
+      groupid: string
+      grupo: string
+      hosts: Array<{ hostid: string; hostname: string }>
+    }>
+  > {
+    return cached(
+      'grupos:com-hosts',
+      async () => {
+        const [grupos, hostsPorGrupo] = await Promise.all([
+          ZabbixService.listarGrupos(),
+          HostRepository.getHostsDeTodosGrupos(),
+        ])
+        return grupos.map((g) => ({
+          groupid: g.groupid,
+          grupo: g.name,
+          hosts: (hostsPorGrupo.get(g.groupid) ?? []).map((h) => ({
+            hostid: h.hostid,
+            hostname: h.hostname,
+          })),
+        }))
+      },
+      TTL.HOSTS_DO_GRUPO,
+    )
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // DETALHES DO HOST (com classificação)
   // ───────────────────────────────────────────────────────────
 
   static async getHostDetails(hostid: bigint | number): Promise<HostDetails> {
@@ -142,7 +166,6 @@ export class ZabbixService {
   private static async _getHostDetailsUncached(hostid: bigint | number): Promise<HostDetails> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
 
-    // Helper que mede o tempo de cada chamada
     const p = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
       const start = Date.now()
       try {
@@ -218,16 +241,105 @@ export class ZabbixService {
       classificacao,
     }
   }
+
+  // ───────────────────────────────────────────────────────────
+  // ✅ NOVO — BATCH PRIVADO — reutilizado por getHostsFullDoGrupo
+  // e por coletarDadosCompletos. 11 queries totais, independente de N.
+  // ───────────────────────────────────────────────────────────
+  private static async _montarHostsFullBatch(hosts: HostResumo[]): Promise<HostFull[]> {
+    if (hosts.length === 0) return []
+
+    const hostids = hosts.map((h) => BigInt(h.hostid))
+
+    const [
+      statusMap,
+      cpuMap,
+      memoriaMap,
+      uptimeMap,
+      osMap,
+      discosMap,
+      tipoMap,
+      templatesMap,
+      gruposMap,
+      ifaceMap,
+      servicesMap,
+    ] = await Promise.all([
+      MetricRepository.getStatusBatch(hostids),
+      MetricRepository.getCpuBatch(hostids),
+      MetricRepository.getMemoriaBatch(hostids),
+      MetricRepository.getUptimeBatch(hostids),
+      MetricRepository.getOsBatch(hostids),
+      MetricRepository.getDiscosBatch(hostids),
+      MetricRepository.getTipoHostBatch(hostids),
+      HostRepository.getTemplatesBatch(hostids),
+      HostRepository.getGruposBatch(hostids),
+      HostRepository.getInterfaceTypeBatch(hostids),
+      ServiceRepository.getServicesBatch(hostids),
+    ])
+
+    return hosts.map((h) => {
+      const id = h.hostid
+      const idBig = BigInt(id)
+
+      const status = statusMap.get(id) ?? 'DOWN'
+      const cpu = cpuMap.get(id) ?? null
+      const memoria = memoriaMap.get(id) ?? null
+      const uptimeSeg = uptimeMap.get(id) ?? null
+      const os = osMap.get(id) ?? null
+      const discos = discosMap.get(id) ?? []
+      const tipo = tipoMap.get(id) ?? null
+      const templates = templatesMap.get(id) ?? []
+      const gruposHost = gruposMap.get(id) ?? []
+      const interfaceType = ifaceMap.get(id) ?? null
+      const services = servicesMap.get(id) ?? []
+
+      const classificacao = HostClassifier.classify({
+        hostid: idBig,
+        osData: os && tipo !== 'network' ? os : null,
+        templates,
+        services: services.map((s) => s.name),
+        groups: gruposHost,
+        interfaceType,
+      })
+
+      const isNetwork = tipo === 'network'
+
+      const details: HostDetails = isNetwork
+        ? {
+            hostid: id,
+            status,
+            cpu: null,
+            os: { type: 'network', name: 'Link/VPN' },
+            memoria: null,
+            discos: [],
+            uptime_fmt: 'N/A',
+            services: [],
+            classificacao,
+          }
+        : {
+            hostid: id,
+            status,
+            cpu,
+            os,
+            memoria,
+            discos,
+            uptime_fmt: uptimeSeg !== null ? fmtUptime(uptimeSeg) : 'N/A',
+            services: services as unknown as HostService[],
+            classificacao,
+          }
+
+      return { hostid: id, hostname: h.hostname, details }
+    })
+  }
+
   // ───────────────────────────────────────────────────────────
   // COLETA COMPLETA (sem cache — pesado e raro)
+  // ✅ Agora em BATCH — mesmo formato de saída.
   // ───────────────────────────────────────────────────────────
-
   static async coletarDadosCompletos(): Promise<ColetaCompleta> {
-    // Lista hosts ATIVOS (status=0)
     const grupos = await ZabbixService.listarGrupos()
     const todos = new Map<string, HostResumo>()
 
-    // Coleta de todos os grupos (evita host duplicado por estar em vários grupos)
     const hostsPorGrupo = await Promise.all(
       grupos.map((g) => HostRepository.getHostsDoGrupo(BigInt(g.groupid))),
     )
@@ -236,14 +348,13 @@ export class ZabbixService {
     }
 
     const hostsUnicos = Array.from(todos.values())
+    const hostsFull = await ZabbixService._montarHostsFullBatch(hostsUnicos)
 
-    const resultado = await Promise.all(
-      hostsUnicos.map(async (h) => {
-        const detalhes = await ZabbixService.getHostDetails(BigInt(h.hostid))
-        const { hostid: _ignored, ...rest } = detalhes
-        return { hostid: h.hostid, hostname: h.hostname, ...rest }
-      }),
-    )
+    // Achatamento mantendo o formato atual de ColetaCompleta
+    const resultado = hostsFull.map(({ hostid, hostname, details }) => {
+      const { hostid: _ignored, ...rest } = details
+      return { hostid, hostname, ...rest }
+    })
 
     return {
       total_hosts: resultado.length,
@@ -380,11 +491,6 @@ export class ZabbixService {
   // RELATÓRIO POR NOME (lookup interno)
   // ───────────────────────────────────────────────────────────
 
-  /**
-   * Retorna o relatório do host buscando pelo NOME (não pelo hostid).
-   * Faz o lookup internamente e delega para getRelatorioHostInteligente.
-   * Retorna null se o host não existir.
-   */
   static async getRelatorioPorNome(
     hostname: string,
     inicio: string,
@@ -419,11 +525,14 @@ export class ZabbixService {
     )
   }
 
+  // ───────────────────────────────────────────────────────────
+  // HOSTS FULL DO GRUPO
+  // ✅ Mesmo nome, mesmo formato. Agora usa _montarHostsFullBatch.
+  // ───────────────────────────────────────────────────────────
   static async getHostsFullDoGrupo(chave: string): Promise<HostsFullResponse> {
     return cached(
       `grupo:${chave}:hosts-full`,
       async () => {
-        // 1) Lista hosts do grupo
         const grupoResp = await HostRepository.getHostsPorChave(chave)
         const hosts = grupoResp.hosts
 
@@ -431,89 +540,7 @@ export class ZabbixService {
           return { grupo: chave, tipo: grupoResp.tipo, total: 0, hosts: [] }
         }
 
-        const hostids = hosts.map((h) => BigInt(h.hostid))
-
-        // 2) BATCH — 7 queries totais (independente do número de hosts)
-        const [
-          statusMap,
-          cpuMap,
-          memoriaMap,
-          uptimeMap,
-          osMap,
-          discosMap,
-          tipoMap,
-          templatesMap,
-          gruposMap,
-          ifaceMap,
-          servicesMap,
-        ] = await Promise.all([
-          MetricRepository.getStatusBatch(hostids),
-          MetricRepository.getCpuBatch(hostids),
-          MetricRepository.getMemoriaBatch(hostids),
-          MetricRepository.getUptimeBatch(hostids),
-          MetricRepository.getOsBatch(hostids),
-          MetricRepository.getDiscosBatch(hostids),
-          MetricRepository.getTipoHostBatch(hostids),
-          HostRepository.getTemplatesBatch(hostids),
-          HostRepository.getGruposBatch(hostids),
-          HostRepository.getInterfaceTypeBatch(hostids),
-          ServiceRepository.getServicesBatch(hostids),
-        ])
-
-        // 3) Monta o resultado
-        const resultado: HostFull[] = hosts.map((h) => {
-          const id = h.hostid
-          const idBig = BigInt(id)
-
-          const status = statusMap.get(id) ?? 'DOWN'
-          const cpu = cpuMap.get(id) ?? null
-          const memoria = memoriaMap.get(id) ?? null
-          const uptimeSeg = uptimeMap.get(id) ?? null
-          const os = osMap.get(id) ?? null
-          const discos = discosMap.get(id) ?? []
-          const tipo = tipoMap.get(id) ?? null
-          const templates = templatesMap.get(id) ?? []
-          const gruposHost = gruposMap.get(id) ?? []
-          const interfaceType = ifaceMap.get(id) ?? null
-          const services = servicesMap.get(id) ?? []
-
-          const classificacao = HostClassifier.classify({
-            hostid: idBig,
-            osData: os && tipo !== 'network' ? os : null,
-            templates,
-            services: services.map((s) => s.name),
-            groups: gruposHost,
-            interfaceType,
-          })
-
-          const isNetwork = tipo === 'network'
-
-          const details: HostDetails = isNetwork
-            ? {
-                hostid: id,
-                status,
-                cpu: null,
-                os: { type: 'network', name: 'Link/VPN' },
-                memoria: null,
-                discos: [],
-                uptime_fmt: 'N/A',
-                services: [],
-                classificacao,
-              }
-            : {
-                hostid: id,
-                status,
-                cpu,
-                os,
-                memoria,
-                discos,
-                uptime_fmt: uptimeSeg !== null ? fmtUptime(uptimeSeg) : 'N/A',
-                services: services as unknown as HostService[],
-                classificacao,
-              }
-
-          return { hostid: id, hostname: h.hostname, details }
-        })
+        const resultado = await ZabbixService._montarHostsFullBatch(hosts)
 
         return {
           grupo: chave,
@@ -522,7 +549,7 @@ export class ZabbixService {
           hosts: resultado,
         }
       },
-      60_000, // ← AUMENTEI para 60s (era 30s). Ajuste conforme sua necessidade.
+      60_000,
     )
   }
 
@@ -582,17 +609,17 @@ export class ZabbixService {
     )
   }
 
+  // ───────────────────────────────────────────────────────────
+  // ✅ getRelatorioPorPeriodo — sem cache duplicado.
+  // getRelatorioHostInteligente já tem cache interno.
+  // Mantém o mesmo nome e o mesmo retorno.
+  // ───────────────────────────────────────────────────────────
   static async getRelatorioPorPeriodo(
     hostid: bigint | number,
     inicio: string,
     fim: string,
   ) {
-    const id = hostid.toString()
-    return cached(
-      `host:${id}:relatorio-periodo:${inicio}:${fim}`,
-      () => ZabbixService.getRelatorioHostInteligente(hostid, inicio, fim),
-      TTL.RELATORIO_PERIODO,
-    )
+    return ZabbixService.getRelatorioHostInteligente(hostid, inicio, fim)
   }
 
   static async getStatusPingUptime(hostid: bigint | number) {
@@ -604,6 +631,46 @@ export class ZabbixService {
     )
   }
 
+  // ───────────────────────────────────────────────────────────
+  // ✅ NOVO — Payload composto de /host/:hostid/metrics
+  // Mesma saída que a rota já montava inline, agora cacheada.
+  // ───────────────────────────────────────────────────────────
+  static async getHostMetricsPayload(hostid: bigint | number) {
+    const id = hostid.toString()
+    return cached(
+      `host:${id}:metrics-payload`,
+      async () => {
+        const [details, comIp, basico, statusInfo] = await Promise.all([
+          ZabbixService.getHostDetails(hostid),
+          ZabbixService.getHostComIp(hostid),
+          ZabbixService.getHostBasico(hostid),
+          ZabbixService.getStatusPingUptime(hostid),
+        ])
+
+        return {
+          hostid: id,
+          nome: basico?.host ?? null,
+          ip: comIp?.ip ?? null,
+          porta_customizada: comIp?.porta_customizada ?? null,
+
+          status: statusInfo.status,
+          host_status: statusInfo.host_status,
+          icmp_ping: statusInfo.icmp_ping,
+          latency_ms: statusInfo.latency_ms,
+          uptime_seconds: statusInfo.uptime_seconds,
+          uptime_days: statusInfo.uptime_days,
+
+          cpu: details.cpu,
+          memoria: details.memoria,
+          discos: details.discos,
+          os: details.os?.name ?? details.os?.type?.toUpperCase() ?? 'UNKNOWN',
+          os_type: details.os?.type ?? 'unknown',
+          services: details.services,
+        }
+      },
+      30_000,
+    )
+  }
 }
 
 export interface HostFull {

@@ -8,7 +8,6 @@ const router = Router()
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/details
-// Detalhes completos do host (com classificação)
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/details',
@@ -28,7 +27,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/basico
-// Info básica (id, host, hostname, status)
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/basico',
@@ -47,7 +45,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/services
-// Lista de serviços com status ON/OFF
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/services',
@@ -65,7 +62,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/problemas
-// Últimos 10 problemas do host
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/problemas',
@@ -81,13 +77,8 @@ router.get(
   },
 )
 
-
 // ─────────────────────────────────────────────────────────────
-// GET /host/by-name/:hostname/relatorio
-// Retorna CPU, Memória, Discos, Serviços do host pelo NOME
-// Query: ?inicio=YYYY-MM-DD HH:MM:SS&fim=...&agrupamento=15min
-//
-// Endpoint público (sem validarToken) para o Flask consumir.
+// GET /host/by-name/:hostname/relatorio  (público)
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/by-name/:hostname/relatorio',
@@ -121,7 +112,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /hosts/com-ip
-// Lista hosts com IP
 // ─────────────────────────────────────────────────────────────
 router.get('/hosts/com-ip', validarToken, async (_req: Request, res: Response) => {
   try {
@@ -135,7 +125,6 @@ router.get('/hosts/com-ip', validarToken, async (_req: Request, res: Response) =
 
 // ─────────────────────────────────────────────────────────────
 // GET /hosts/com-ip-e-so
-// Lista hosts com IP + SO + porta customizada
 // ─────────────────────────────────────────────────────────────
 router.get('/hosts/com-ip-e-so', validarToken, async (_req: Request, res: Response) => {
   try {
@@ -149,7 +138,6 @@ router.get('/hosts/com-ip-e-so', validarToken, async (_req: Request, res: Respon
 
 // ─────────────────────────────────────────────────────────────
 // GET /hosts/status-ping-uptime
-// Status de TODOS os hosts em 1 chamada
 // ─────────────────────────────────────────────────────────────
 router.get('/hosts/status-ping-uptime', validarToken, async (_req: Request, res: Response) => {
   try {
@@ -163,7 +151,6 @@ router.get('/hosts/status-ping-uptime', validarToken, async (_req: Request, res:
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/com-ip
-// Host + IP + porta customizada
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/com-ip',
@@ -182,7 +169,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/active-services
-// Triggers ativas com severity >= 2
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/active-services',
@@ -200,7 +186,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/relatorio-periodo
-// Resumo min/avg/max de CPU, memória e disponibilidade
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/relatorio-periodo',
@@ -219,7 +204,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/serie?key=...&inicio=...&fim=...
-// Série de um item específico
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/serie',
@@ -240,10 +224,9 @@ router.get(
   },
 )
 
-
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/metrics
-// Payload COMPOSTO idêntico ao get_host_metrics() do Python
+// ✅ Agora usa getHostMetricsPayload() — mesma saída, cacheada.
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/metrics',
@@ -251,35 +234,8 @@ router.get(
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
-
-      // ✅ Agora usa getStatusPingUptime (1 host) em vez de All (todos)
-      const [details, comIp, basico, statusInfo] = await Promise.all([
-        ZabbixService.getHostDetails(hostid),
-        ZabbixService.getHostComIp(hostid),
-        ZabbixService.getHostBasico(hostid),
-        ZabbixService.getStatusPingUptime(hostid),   // ← MUDOU
-      ])
-
-      res.json({
-        hostid: hostid.toString(),
-        nome: basico?.host ?? null,
-        ip: comIp?.ip ?? null,
-        porta_customizada: comIp?.porta_customizada ?? null,
-
-        status: statusInfo.status,
-        host_status: statusInfo.host_status,
-        icmp_ping: statusInfo.icmp_ping,
-        latency_ms: statusInfo.latency_ms,
-        uptime_seconds: statusInfo.uptime_seconds,
-        uptime_days: statusInfo.uptime_days,
-
-        cpu: details.cpu,
-        memoria: details.memoria,
-        discos: details.discos,
-        os: details.os?.name ?? details.os?.type?.toUpperCase() ?? 'UNKNOWN',
-        os_type: details.os?.type ?? 'unknown',
-        services: details.services,
-      })
+      const payload = await ZabbixService.getHostMetricsPayload(hostid)
+      res.json(payload)
     } catch (e: unknown) {
       console.error('[host/metrics]', e)
       res.status(400).json({ erro: (e as Error).message })

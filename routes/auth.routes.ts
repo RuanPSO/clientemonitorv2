@@ -22,13 +22,6 @@ if (!SECRET) {
 
 /**
  * POST /auth/token
- *
- * Expiração controlada por JWT_EXPIRES_IN no .env:
- *   - "5m"     → 5 minutos (padrão do Python, seguro para produção)
- *   - "1h"     → 1 hora
- *   - "30d"    → 30 dias
- *   - "never"  → sem expiração (⚠️ apenas QA/dev)
- *   - ausente  → cai no default "5m"
  */
 router.post('/auth/token', (_req, res) => {
   const expiresInEnv = process.env.JWT_EXPIRES_IN ?? 'never'
@@ -37,7 +30,6 @@ router.post('/auth/token', (_req, res) => {
   let token: string
 
   if (expiresInEnv === 'never') {
-    // Sem expiração — não define exp no payload
     token = jwt.sign(payload, SECRET, { algorithm: 'HS256' })
     console.warn('⚠️  Token gerado SEM EXPIRAÇÃO (JWT_EXPIRES_IN=never). Use apenas em QA/dev.')
   } else {
@@ -53,9 +45,9 @@ router.post('/auth/token', (_req, res) => {
   })
 })
 
-
-
-
+// ─────────────────────────────────────────────────────────────
+// POST /login
+// ─────────────────────────────────────────────────────────────
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, senha } = req.body ?? {}
@@ -63,7 +55,6 @@ router.post('/login', async (req: Request, res: Response) => {
     const resultado = await AuthService.login(String(email ?? ''), String(senha ?? ''))
 
     if (!resultado.ok) {
-      // 401 para credenciais inválidas, 403 para inativo
       const status = resultado.motivo === 'usuario_inativo' ? 403 : 401
       return res.status(status).json({ erro: resultado.mensagem, motivo: resultado.motivo })
     }
@@ -104,7 +95,6 @@ router.post('/login', async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /me
-// Retorna os dados do usuário logado a partir do JWT.
 // ─────────────────────────────────────────────────────────────
 router.get('/me', validarToken, async (req: Request, res: Response) => {
   try {
@@ -129,9 +119,7 @@ router.get('/me', validarToken, async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────
 // POST /users
-// Cria usuário (endpoint ADMIN, requer JWT)
-// Body: { nome, email, cargo, grupo }
-//   - "grupo" é o ID do grupo em grupos_hosts (integer)
+// ✅ Sem SELECT prévio. Confia na UNIQUE do banco. Elimina race.
 // ─────────────────────────────────────────────────────────────
 router.post('/users', validarToken, async (req: Request, res: Response) => {
   try {
@@ -142,31 +130,29 @@ router.post('/users', validarToken, async (req: Request, res: Response) => {
     }
 
     const emailNorm = String(email).trim().toLowerCase()
-
-    // Verifica se já existe
-    const existente = await prismaCliente.$queryRaw<Array<{ id: number }>>`
-      SELECT id FROM usuarios WHERE LOWER(email) = ${emailNorm} LIMIT 1
-    `
-    if (existente.length > 0) {
-      return res.status(409).json({ error: 'E-mail já cadastrado' })
-    }
-
-    // Gera token de ativação
     const tokenAtivacao = crypto.randomBytes(32).toString('base64url')
 
-    const id = await UsuarioRepository.criar({
-      nome: String(nome).trim(),
-      email: emailNorm,
-      cargo: cargo ? String(cargo).trim() : null,
-      id_grupo: Number(grupo),
-      token_ativacao: tokenAtivacao,
-    })
+    let id: number
+    try {
+      id = await UsuarioRepository.criar({
+        nome: String(nome).trim(),
+        email: emailNorm,
+        cargo: cargo ? String(cargo).trim() : null,
+        id_grupo: Number(grupo),
+        token_ativacao: tokenAtivacao,
+      })
+    } catch (errIns: any) {
+      const msg = String(errIns?.message ?? '')
+      // P2002 = unique constraint do Prisma. Também cobrimos pela mensagem.
+      if (errIns?.code === 'P2002' || /unique|duplicate/i.test(msg)) {
+        return res.status(409).json({ error: 'E-mail já cadastrado' })
+      }
+      throw errIns
+    }
 
-    // Monta link de ativação
     const appUrl = process.env.APP_URL ?? 'http://localhost:5173'
     const link = `${appUrl}/ativar?token=${tokenAtivacao}`
 
-    // Envia e-mail
     try {
       await enviarEmailAtivacao({
         destinatario: emailNorm,
@@ -175,7 +161,6 @@ router.post('/users', validarToken, async (req: Request, res: Response) => {
       })
     } catch (errEmail) {
       console.error('[POST /users] Erro ao enviar e-mail:', errEmail)
-      // Usuário foi criado, mas o email falhou — devolve aviso
       return res.status(201).json({
         message: 'Usuário criado, mas o envio de e-mail falhou. Verifique o log.',
         usuarioId: id,
@@ -196,9 +181,7 @@ router.post('/users', validarToken, async (req: Request, res: Response) => {
 })
 
 // ─────────────────────────────────────────────────────────────
-// GET /ativar?token=XXX
-// Valida o token (existe + não expirou) e retorna dados básicos do usuário.
-// Endpoint PÚBLICO.
+// GET /ativar?token=XXX  (público)
 // ─────────────────────────────────────────────────────────────
 router.get('/ativar', async (req: Request, res: Response) => {
   try {
@@ -232,10 +215,7 @@ router.get('/ativar', async (req: Request, res: Response) => {
 })
 
 // ─────────────────────────────────────────────────────────────
-// POST /ativar
-// Ativa o usuário: salva senha e marca como ativo.
-// Body: { token, senha }
-// Endpoint PÚBLICO.
+// POST /ativar  (público)
 // ─────────────────────────────────────────────────────────────
 router.post('/ativar', async (req: Request, res: Response) => {
   try {
@@ -275,21 +255,3 @@ router.post('/ativar', async (req: Request, res: Response) => {
 })
 
 export default router
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -7,7 +7,6 @@ const router = Router()
 
 // ─────────────────────────────────────────────────────────────
 // GET /grupos
-// Lista todos os grupos do Zabbix (hstgrp)
 // ─────────────────────────────────────────────────────────────
 router.get('/grupos', validarToken, async (_req, res: Response) => {
   try {
@@ -19,10 +18,7 @@ router.get('/grupos', validarToken, async (_req, res: Response) => {
 })
 
 // ─────────────────────────────────────────────────────────────
-// GET /grupo/:chave/hosts
-// Dispatcher (opção B):
-//   - Se ":chave" for só dígitos → busca por groupid
-//   - Senão → busca por nome do grupo
+// GET /grupo/:chave
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/grupo/:chave',
@@ -38,7 +34,9 @@ router.get(
   },
 )
 
-
+// ─────────────────────────────────────────────────────────────
+// GET /grupo/:chave/hosts-full
+// ─────────────────────────────────────────────────────────────
 router.get(
   '/grupo/:chave/hosts-full',
   validarToken,
@@ -54,27 +52,13 @@ router.get(
   },
 )
 
-
 // ─────────────────────────────────────────────────────────────
 // GET /grupos/com-hosts
-// Lista grupos com hosts (equivalente a get_grupos_com_hosts())
+// ✅ Agora usa listarGruposComHosts() → 2 queries totais
 // ─────────────────────────────────────────────────────────────
 router.get('/grupos/com-hosts', validarToken, async (_req, res: Response) => {
   try {
-    const grupos = await ZabbixService.listarGrupos()
-    const resultado = await Promise.all(
-      grupos.map(async (g) => {
-        const hosts = await ZabbixService.getHostsDoGrupo(BigInt(g.groupid))
-        return {
-          groupid: g.groupid,
-          grupo: g.name,
-          hosts: hosts.map((h) => ({
-            hostid: h.hostid,
-            hostname: h.hostname,
-          })),
-        }
-      }),
-    )
+    const resultado = await ZabbixService.listarGruposComHosts()
     res.json(resultado)
   } catch (e: unknown) {
     console.error('[grupos/com-hosts]', e)

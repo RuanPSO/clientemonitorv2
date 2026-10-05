@@ -60,7 +60,7 @@ export class HostRepository {
   }
 
   // ==========================================================
-  // HOSTS POR GRUPO — por NOME (NOVO)
+  // HOSTS POR GRUPO — por NOME
   // ==========================================================
   static async getHostsPorNomeDoGrupo(nome: string): Promise<HostResumo[]> {
     const rows = await prisma.$queryRaw<Array<{ hostid: bigint; hostname: string }>>`
@@ -76,6 +76,38 @@ export class HostRepository {
   }
 
   // ==========================================================
+  // ✅ NOVO — HOSTS DE TODOS OS GRUPOS EM 1 QUERY (batch)
+  // Substitui o N+1 de /grupos/com-hosts.
+  // Retorna Map<groupid, HostResumo[]> com todos os hosts ativos.
+  // ==========================================================
+  static async getHostsDeTodosGrupos(): Promise<Map<string, HostResumo[]>> {
+    const rows = await prisma.$queryRaw<
+      Array<{ groupid: bigint; hostid: bigint; name: string }>
+    >`
+      SELECT
+        hg.groupid,
+        h.hostid,
+        h.name
+      FROM hosts_groups hg
+      JOIN hosts h ON h.hostid = hg.hostid
+      WHERE h.status = 0
+      ORDER BY hg.groupid, h.name
+    `
+
+    const map = new Map<string, HostResumo[]>()
+    for (const r of rows) {
+      const key = r.groupid.toString()
+      let bucket = map.get(key)
+      if (!bucket) {
+        bucket = []
+        map.set(key, bucket)
+      }
+      bucket.push({ hostid: r.hostid.toString(), hostname: r.name })
+    }
+    return map
+  }
+
+  // ==========================================================
   // DISPATCHER (opção B): ID ou NOME na mesma rota
   // ==========================================================
   static async getHostsPorChave(chave: string): Promise<{
@@ -83,12 +115,10 @@ export class HostRepository {
     chave: string
     hosts: HostResumo[]
   }> {
-    // Se for só dígitos → busca por ID
     if (/^\d+$/.test(chave)) {
       const hosts = await HostRepository.getHostsDoGrupo(BigInt(chave))
       return { tipo: 'id', chave, hosts }
     }
-    // Senão, busca por nome
     const hosts = await HostRepository.getHostsPorNomeDoGrupo(chave)
     return { tipo: 'nome', chave, hosts }
   }
@@ -119,11 +149,6 @@ export class HostRepository {
   // ==========================================================
   // HELPERS PARA O HOST CLASSIFIER
   // ==========================================================
-
-  /**
-   * Retorna os NOMES dos templates aplicados ao host.
-   * Templates no Zabbix são "hosts" com status=3 (TEMPLATE).
-   */
   static async getTemplatesDoHost(hostid: bigint | number): Promise<string[]> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
     const rows = await prisma.$queryRaw<Array<{ name: string }>>`
@@ -136,9 +161,6 @@ export class HostRepository {
     return rows.map((r) => r.name)
   }
 
-  /**
-   * Retorna os NOMES dos grupos aos quais o host pertence.
-   */
   static async getGruposDoHost(hostid: bigint | number): Promise<string[]> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
     const rows = await prisma.$queryRaw<Array<{ name: string }>>`
@@ -150,10 +172,6 @@ export class HostRepository {
     return rows.map((r) => r.name)
   }
 
-  /**
-   * Retorna 'SNMP' se o host tiver ao menos uma interface SNMP (type=2).
-   * Retorna null caso contrário.
-   */
   static async getInterfaceType(hostid: bigint | number): Promise<string | null> {
     const hostIdBig = typeof hostid === 'bigint' ? hostid : BigInt(hostid)
     const rows = await prisma.$queryRaw<Array<{ type: number }>>`
@@ -166,90 +184,78 @@ export class HostRepository {
     return rows.length > 0 ? 'SNMP' : null
   }
 
-    // ============================================================
-    // BATCH — metadata de múltiplos hosts em 1 query
-    // ============================================================
+  // ============================================================
+  // BATCH — metadata de múltiplos hosts em 1 query
+  // ============================================================
+  static async getTemplatesBatch(hostids: bigint[]): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>()
+    if (hostids.length === 0) return result
+    const idsStr = hostids.map((h) => h.toString())
+    const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
 
-    static async getTemplatesBatch(hostids: bigint[]): Promise<Map<string, string[]>> {
-      const result = new Map<string, string[]>()
-      if (hostids.length === 0) return result
-      const idsStr = hostids.map((h) => h.toString())
-      const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
+    const rows = await prisma.$queryRawUnsafe<Array<{ hostid: bigint; name: string }>>(
+      `SELECT ht.hostid, t.host AS name
+       FROM hosts_templates ht
+       JOIN hosts t ON t.hostid = ht.templateid
+       WHERE ht.hostid IN (${placeholders})
+         AND t.status = 3`,
+      ...idsStr,
+    )
 
-      const rows = await prisma.$queryRawUnsafe<
-        Array<{ hostid: bigint; name: string }>
-      >(
-        `SELECT ht.hostid, t.host AS name
-        FROM hosts_templates ht
-        JOIN hosts t ON t.hostid = ht.templateid
-        WHERE ht.hostid IN (${placeholders})
-          AND t.status = 3`,
-        ...idsStr,
-      )
-
-      for (const id of idsStr) result.set(id, [])
-      for (const r of rows) {
-        result.get(r.hostid.toString())!.push(r.name)
-      }
-      return result
+    for (const id of idsStr) result.set(id, [])
+    for (const r of rows) {
+      result.get(r.hostid.toString())!.push(r.name)
     }
+    return result
+  }
 
-    static async getGruposBatch(hostids: bigint[]): Promise<Map<string, string[]>> {
-      const result = new Map<string, string[]>()
-      if (hostids.length === 0) return result
-      const idsStr = hostids.map((h) => h.toString())
-      const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
+  static async getGruposBatch(hostids: bigint[]): Promise<Map<string, string[]>> {
+    const result = new Map<string, string[]>()
+    if (hostids.length === 0) return result
+    const idsStr = hostids.map((h) => h.toString())
+    const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
 
-      const rows = await prisma.$queryRawUnsafe<
-        Array<{ hostid: bigint; name: string }>
-      >(
-        `SELECT hg.hostid, g.name
-        FROM hosts_groups hg
-        JOIN hstgrp g ON g.groupid = hg.groupid
-        WHERE hg.hostid IN (${placeholders})`,
-        ...idsStr,
-      )
+    const rows = await prisma.$queryRawUnsafe<Array<{ hostid: bigint; name: string }>>(
+      `SELECT hg.hostid, g.name
+       FROM hosts_groups hg
+       JOIN hstgrp g ON g.groupid = hg.groupid
+       WHERE hg.hostid IN (${placeholders})`,
+      ...idsStr,
+    )
 
-      for (const id of idsStr) result.set(id, [])
-      for (const r of rows) {
-        result.get(r.hostid.toString())!.push(r.name)
-      }
-      return result
+    for (const id of idsStr) result.set(id, [])
+    for (const r of rows) {
+      result.get(r.hostid.toString())!.push(r.name)
     }
+    return result
+  }
 
-    static async getInterfaceTypeBatch(
-      hostids: bigint[],
-    ): Promise<Map<string, string | null>> {
-      const result = new Map<string, string | null>()
-      if (hostids.length === 0) return result
-      const idsStr = hostids.map((h) => h.toString())
-      const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
+  static async getInterfaceTypeBatch(
+    hostids: bigint[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>()
+    if (hostids.length === 0) return result
+    const idsStr = hostids.map((h) => h.toString())
+    const placeholders = idsStr.map((_, i) => `$${i + 1}`).join(', ')
 
-      const rows = await prisma.$queryRawUnsafe<
-        Array<{ hostid: bigint }>
-      >(
-        `SELECT DISTINCT hostid
-        FROM interface
-        WHERE hostid IN (${placeholders})
-          AND type = 2`,
-        ...idsStr,
-      )
+    const rows = await prisma.$queryRawUnsafe<Array<{ hostid: bigint }>>(
+      `SELECT DISTINCT hostid
+       FROM interface
+       WHERE hostid IN (${placeholders})
+         AND type = 2`,
+      ...idsStr,
+    )
 
-      for (const id of idsStr) result.set(id, null)
-      for (const r of rows) {
-        result.set(r.hostid.toString(), 'SNMP')
-      }
-      return result
+    for (const id of idsStr) result.set(id, null)
+    for (const r of rows) {
+      result.set(r.hostid.toString(), 'SNMP')
     }
+    return result
+  }
 
   // ==========================================================
-  // BUSCAR HOST POR NOME (para o lookup de relatório)
+  // BUSCAR HOST POR NOME
   // ==========================================================
-  /**
-   * Busca o hostid pelo nome técnico (`hosts.host`), case-insensitive.
-   * Prioriza hosts habilitados (status=0) quando há duplicados.
-   * Retorna null se não encontrar.
-   */
   static async findHostidPorNome(nome: string): Promise<bigint | null> {
     const rows = await prisma.$queryRaw<Array<{ hostid: bigint }>>`
       SELECT hostid
@@ -325,10 +331,6 @@ export class HostRepository {
   // ==========================================================
   // HOSTS + IP + SO — 3 queries totais (era 1 + N)
   // ==========================================================
-  /**
-   * Otimização chave: a detecção de SO é feita em BATCH para todos os hosts
-   * com 2 queries únicas (uma para sw.os/uname, outra para os fallbacks).
-   */
   static async listarHostsComIpESo(): Promise<
     Array<{
       groupid: string
@@ -343,7 +345,6 @@ export class HostRepository {
   > {
     const { gerarPortaDoIp } = await import('../utils/helpers.js')
 
-    // ─── 1) Hosts + grupos + IP ───
     const rows = await prisma.$queryRaw<
       Array<{
         groupid: bigint
@@ -371,11 +372,9 @@ export class HostRepository {
 
     if (rows.length === 0) return []
 
-    // IDs únicos (alguns hosts podem aparecer em vários grupos)
     const hostidsUnicos = Array.from(new Set(rows.map((r) => r.hostid.toString())))
     const placeholders = hostidsUnicos.map((_, i) => `$${i + 1}`).join(', ')
 
-    // ─── 2) SO em BATCH — sw.os + uname para todos de uma vez ───
     const soRows = await prisma.$queryRawUnsafe<
       Array<{ hostid: bigint; key_: string; value: string | null }>
     >(
@@ -391,7 +390,6 @@ export class HostRepository {
       ...hostidsUnicos,
     )
 
-    // Agrupa resultado por hostid
     const soMap = new Map<string, { sw_os: string | null; uname: string | null }>()
     for (const r of soRows) {
       const id = r.hostid.toString()
@@ -401,8 +399,6 @@ export class HostRepository {
       soMap.set(id, cur)
     }
 
-    // ─── 3) Fallback: hosts que não têm sw.os nem uname ───
-    // Descobre se tem item Windows (perf_counter, vfs.fs.size[C:]) ou Linux (system.cpu, vm.memory)
     const hostidsSemSo = hostidsUnicos.filter((id) => {
       const s = soMap.get(id)
       return !s || (!s.sw_os && !s.uname)
@@ -448,7 +444,6 @@ export class HostRepository {
       )
     }
 
-    // ─── 4) Monta o resultado final ───
     return rows.map((r) => {
       const id = r.hostid.toString()
       const soInfo = soMap.get(id)
