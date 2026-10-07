@@ -41,5 +41,9 @@ export function validateMicrosoftAuthEnv(): void {
     }
   }
 
-  new URL(process.env.FRONTEND_URL ?? 'http://localhost:5173')
+  const frontendUrl = process.env.FRONTEND_URL?.trim()
+  if (process.env.NODE_ENV === 'production' && !frontendUrl) {
+    throw new Error('FRONTEND_URL é obrigatória em produção')
+  }
+  new URL(frontendUrl ?? 'http://localhost:5173')
 }

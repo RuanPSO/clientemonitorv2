@@ -47,9 +47,11 @@ Copie `.env.example` para `.env` somente se ainda não houver um `.env`, e preen
 | `AZURE_REDIRECT_URI` | Callback Web do backend |
 | `FRONTEND_URL` | Origem frontend permitida pelo CORS (padrão `http://localhost:5173`) |
 | `SESSION_SECRET` | Segredo aleatório com no mínimo 32 caracteres |
+| `SESSION_COOKIE_SAME_SITE` | `lax` por padrão; use `none` em produção somente para frontend/backend realmente cross-site (exige HTTPS) |
+| `SESSION_COOKIE_DOMAIN` | Opcional; deixe vazio para um cookie host-only, ou defina o domínio compartilhado entre subdomínios |
 | `DEBUG` | Use `true` somente em desenvolvimento para habilitar logs de depuração sem tokens |
 
-O carregamento de ambiente usa `dotenv` com `override: true`. A inicialização falha com a lista de variáveis ausentes (sem imprimir valores) ou se `SESSION_SECRET` tiver menos de 32 caracteres. Em desenvolvimento, `AZURE_REDIRECT_URI` deve corresponder à porta do backend (padrão `http://localhost:3000/auth/callback`); `http://localhost:5173/auth/callback` é a porta SPA/frontend e não funciona como callback do backend. No startup são registrados o client ID, tenant ID, tamanho do client secret e redirect URI; o segredo em si nunca é registrado.
+O carregamento de ambiente usa `dotenv` com `override: true`. A inicialização falha com a lista de variáveis ausentes (sem imprimir valores) ou se `SESSION_SECRET` tiver menos de 32 caracteres. Em produção, `FRONTEND_URL` deve ser definido explicitamente; em desenvolvimento, o padrão permitido é `http://localhost:5173`. Em desenvolvimento, `AZURE_REDIRECT_URI` deve corresponder à porta do backend (padrão `http://localhost:3000/auth/callback`); `http://localhost:5173/auth/callback` é a porta SPA/frontend e não funciona como callback do backend. No startup são registrados o client ID, tenant ID, tamanho do client secret e redirect URI; o segredo em si nunca é registrado.
 
 ### Instalação e execução
 
@@ -58,7 +60,7 @@ npm install
 npm run dev
 ```
 
-O backend inicia em `http://localhost:3000`. Inicie o frontend existente em outro terminal. Para o frontend, configure `VITE_API_URL=http://localhost:3000` no ambiente dele, sem sobrescrever configuração local existente. Não há arquivos React neste repositório para editar; a integração de UI futura deve:
+O backend escuta em IPv4 e IPv6 e pode ser acessado por `http://localhost:3000` ou `http://127.0.0.1:3000`. Se um processo antigo estiver usando a porta, encerre apenas a instância antiga do ClientMonitor antes de iniciar outra. Inicie o frontend existente em outro terminal. Para o frontend, configure `VITE_API_URL=http://localhost:3000` no ambiente dele, sem sobrescrever configuração local existente. Não há arquivos React neste repositório para editar; a integração de UI futura deve:
 
 1. Navegar para `${VITE_API_URL}/auth/login` ao iniciar o login.
 2. Após o retorno para `/dashboard`, carregar `${VITE_API_URL}/auth/me` usando `fetch(..., { credentials: 'include' })`.
@@ -85,7 +87,7 @@ O navegador inicia `/auth/login`; o backend salva estado OAuth e redireciona à 
 
 O cache MSAL é serializado dentro da sessão de cada usuário e cada chamada usa um cliente MSAL com cache plugin associado àquela sessão, sem cache global compartilhado. IP encaminhado é processado na ordem informada; em produção, configure `trust proxy` somente se a aplicação estiver atrás de proxy confiável, pois cabeçalhos `x-forwarded-for` podem ser falsificados quando expostos diretamente.
 
-O `MemoryStore` padrão do `express-session` serve apenas para desenvolvimento e perde sessões ao reiniciar ou escalar instâncias. Antes de produção, configure um session store persistente, HTTPS, cookies `secure` e proxy confiável conforme a topologia real. As rotas Microsoft restringem CORS a `FRONTEND_URL` com `credentials: true`; as rotas legadas mantêm o comportamento CORS anterior. O cookie usa `HttpOnly`, `SameSite=Lax` e `secure` em produção.
+O `MemoryStore` padrão do `express-session` serve apenas para desenvolvimento e perde sessões ao reiniciar ou escalar instâncias. Antes de produção, configure um session store persistente, HTTPS, cookies `secure` e proxy confiável conforme a topologia real. Todas as rotas aplicam CORS antes dos endpoints, permitindo somente a origem exata de `FRONTEND_URL`, com credenciais, métodos `GET`, `HEAD` e `POST` e headers `Authorization` e `Content-Type`. O cookie é `HttpOnly`, `SameSite=Lax` por padrão, `Secure` em produção e host-only por padrão (sem `Domain`). `localhost:5173` e `localhost:3000` são same-site apesar das portas diferentes; se o frontend e backend de produção forem realmente cross-site, configure `SESSION_COOKIE_SAME_SITE=none` e use HTTPS. Configure `SESSION_COOKIE_DOMAIN` apenas se precisar compartilhar o cookie entre subdomínios do mesmo domínio.
 
 ### Verificações locais
 

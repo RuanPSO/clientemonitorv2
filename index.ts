@@ -8,10 +8,11 @@ import './config/env.js'
 }
 
 import express, { type Request, type Response, type NextFunction } from 'express'
-import cors from 'cors'
 import session from 'express-session'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import { createCorsMiddleware } from './config/cors.js'
+import { getSessionCookieOptions } from './config/session.js'
 import { cacheStats, invalidateAll } from './lib/cache.js'
 import authRoutes from './routes/auth.routes.js'
 import entraAuthRoutes from './routes/entra-auth.routes.js'
@@ -26,17 +27,30 @@ import { validateMicrosoftAuthEnv } from './config/env.js'
 import { logger } from './utils/logger.js'
 
 const app = express()
-validateMicrosoftAuthEnv()
+try {
+  validateMicrosoftAuthEnv()
+} catch (error) {
+  const reason = error instanceof Error ? error.message : 'Erro desconhecido na configuração'
+
+  console.error([
+    '',
+    '❌ Não foi possível iniciar a API: configuração inválida.',
+    `   ${reason}`,
+    '',
+    '   Para autenticação Microsoft local, confira no arquivo .env:',
+    '   AZURE_REDIRECT_URI=http://localhost:3000/auth/callback',
+    '   PORT=3000',
+    '',
+    '   Cadastre a mesma URI no Entra ID em Authentication > Web e reinicie a API.',
+    '',
+  ].join('\n'))
+  process.exit(1)
+}
 const frontendUrl = new URL(process.env.FRONTEND_URL ?? 'http://localhost:5173').origin
 
 // ─── Middlewares globais ───
 app.use(helmet())
-app.use(cors((req, callback) => {
-  const microsoftAuthRoute = /^\/auth\/(login|callback|silent|me|logout)$/.test(req.path)
-  callback(null, microsoftAuthRoute
-    ? { origin: frontendUrl, credentials: true }
-    : { origin: '*' })
-}))
+app.use(createCorsMiddleware(frontendUrl))
 app.use(express.json({ limit: '5mb' }))
 morgan.token('path', (req) => (req as Request).path)
 app.use(morgan(':method :path :status :response-time ms'))
@@ -45,11 +59,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET ?? '',
   resave: false,
   saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-  },
+  cookie: getSessionCookieOptions(),
 }))
 
 // ─── Rota raiz (health check) ───
@@ -115,6 +125,21 @@ if (process.env.NODE_ENV === 'production') {
   logger.warn('A sessão Express está usando MemoryStore; configure um armazenamento persistente antes de produção')
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  logger.info('API iniciada', { port: PORT, localUrl: `http://localhost:${PORT}` })
+app.listen(PORT, () => {
+  console.log([
+    '',
+    '✅ API ClientMonitor iniciada',
+    `   Ambiente: ${process.env.NODE_ENV ?? 'development'}`,
+    `   API:      http://localhost:${PORT} (IPv4/IPv6)`,
+    `   API IPv4: http://127.0.0.1:${PORT}`,
+    `   Health:   http://localhost:${PORT}/health`,
+    `   Login:    http://localhost:${PORT}/auth/login`,
+    `   Callback: ${process.env.AZURE_REDIRECT_URI}`,
+    `   Frontend: ${frontendUrl}`,
+    '',
+  ].join('\n'))
+  logger.info('API iniciada', {
+    port: PORT,
+    urls: [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`],
+  })
 })
