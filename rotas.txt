@@ -1,0 +1,69 @@
+ROTAS DA API CLIENTEMONITOR
+
+Base usada: http://localhost:3000
+Observacao: a porta pode ser alterada pela variavel PORT.
+Parametros dinamicos aparecem no formato :parametro e devem ser substituidos pelo valor correspondente.
+
+GET    http://localhost:3000/
+GET    http://localhost:3000/health
+POST   http://localhost:3000/admin/cache/clear (somente fora de producao)
+
+AUTENTICACAO JWT E USUARIOS
+POST   http://localhost:3000/auth/token
+POST   http://localhost:3000/login
+GET    http://localhost:3000/me
+POST   http://localhost:3000/users
+GET    http://localhost:3000/ativar?token=:token
+POST   http://localhost:3000/ativar
+
+AUTENTICACAO MICROSOFT ENTRA ID
+GET    http://localhost:3000/auth/login
+GET    http://localhost:3000/auth/callback
+GET    http://localhost:3000/auth/silent
+GET    http://localhost:3000/auth/me
+GET    http://localhost:3000/auth/logout
+
+HOSTS
+GET    http://localhost:3000/host/:hostid/details
+GET    http://localhost:3000/host/:hostid/basico
+GET    http://localhost:3000/host/:hostid/services
+GET    http://localhost:3000/host/:hostid/problemas
+GET    http://localhost:3000/host/by-name/:hostname/relatorio?inicio=:inicio&fim=:fim&agrupamento=:agrupamento
+GET    http://localhost:3000/hosts/com-ip
+GET    http://localhost:3000/hosts/com-ip-e-so
+GET    http://localhost:3000/hosts/status-ping-uptime
+GET    http://localhost:3000/host/:hostid/com-ip
+GET    http://localhost:3000/host/:hostid/active-services
+GET    http://localhost:3000/host/:hostid/relatorio-periodo?inicio=:inicio&fim=:fim
+GET    http://localhost:3000/host/:hostid/serie?key=:key&inicio=:inicio&fim=:fim
+GET    http://localhost:3000/host/:hostid/metrics
+
+GRUPOS
+GET    http://localhost:3000/grupos
+GET    http://localhost:3000/grupo/:chave
+GET    http://localhost:3000/grupo/:chave/hosts-full
+GET    http://localhost:3000/grupos/com-hosts
+
+RELATORIOS E SLA
+GET    http://localhost:3000/host/:hostid/relatorio?inicio=:inicio&fim=:fim&agrupamento=:agrupamento
+POST   http://localhost:3000/host/:hostid/relatorio
+GET    http://localhost:3000/relatorio/disponibilidade?hostids=:hostids&inicio=:inicio&fim=:fim
+GET    http://localhost:3000/host/:hostid/sla?inicio=:inicio&fim=:fim
+
+SERVICOS
+GET    http://localhost:3000/host/:hostid/services/history?inicio=:inicio&fim=:fim
+GET    http://localhost:3000/host/:hostid/services/timeline?inicio=:inicio&fim=:fim
+
+GUACAMOLE
+GET    http://localhost:3000/guacamole/hosts
+POST   http://localhost:3000/guacamole/connect
+POST   http://localhost:3000/guacamole/connect-full
+GET    http://localhost:3000/guacamole/debug/:connectionId
+POST   http://localhost:3000/guacamole/fix-domain/:connectionId
+POST   http://localhost:3000/guacamole/fix-target/:connectionId
+
+INCIDENTES
+GET    http://localhost:3000/incidentes/ativos
+GET    http://localhost:3000/incidentes/hosts-totais
+GET    http://localhost:3000/incidentes/problemas-24h
+GET    http://localhost:3000/incidentes/dashboard
