@@ -99,6 +99,14 @@ npm audit
 
 Testes unitários não precisam de login, tokens reais nem chamadas externas. O build/teste local não comprova o login real: ele depende do cadastro e consentimento corretos no tenant Entra.
 
+### Documentação da API
+
+Com o backend em execução, acesse `/docs` na mesma origem da API. A página é servida pelo Express e carrega a especificação OpenAPI 3.0.3 em `/docs/openapi.json`. O catálogo tipado fica em `routes/docs.openapi.ts`; a versão vem de `package.json`, a base é a origem que serve a página e o ambiente vem de `NODE_ENV`. Atualize o catálogo somente após confirmar o router, o middleware de autenticação e os parâmetros/corpos no código. As respostas sem schema declarado são indicadas como não especificadas, em vez de inventar contratos.
+
+A página e a especificação são públicas, assim como a rota raiz existente. Isso não remove nem substitui a autenticação das operações protegidas: rotas JWT continuam exigindo um header `Authorization` com esquema Bearer e o perfil Microsoft exige o cookie de sessão existente. `POST /auth/token`, `POST /admin/cache/clear`, `GET /guacamole/debug/:connectionId`, `POST /guacamole/fix-domain/:connectionId` e `POST /guacamole/fix-target/:connectionId` foram intencionalmente omitidas do catálogo por emitirem tokens sem credenciais, serem administrativas ou exporem/alterarem configuração. As rotas Guacamole documentadas não aplicam middleware de autenticação no código atual.
+
+Os arquivos da interface ficam em `public/docs/`, sem biblioteca adicional ou servidor separado. Não foi necessário alterar Prisma, migrations, adapters, rotas de negócio ou o lockfile.
+
 - Atualização - parametro de desenvolvimento ativos para adicionar novas funções e novas rotas para aplicações
 
 - Endpoints para rotas publicas e privadas validadas e para uso

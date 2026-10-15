@@ -23,6 +23,7 @@ import slaRoutes from './routes/sla.routes.js'
 import servicesRoutes from './routes/services.routes.js'
 import guacamoleRoutes from './routes/guacamole.routes.js'
 import incidentesRoutes from './routes/incidentes.routes.js'
+import docsRoutes from './routes/docs.routes.js'
 import { validateMicrosoftAuthEnv } from './config/env.js'
 import { logger } from './utils/logger.js'
 
@@ -61,6 +62,9 @@ app.use(session({
   saveUninitialized: false,
   cookie: getSessionCookieOptions(),
 }))
+
+// A documentação é pública, como a rota raiz; cada endpoint mantém sua própria autenticação.
+app.use(docsRoutes)
 
 // ─── Rota raiz (health check) ───
 app.get('/', (_req, res) => {

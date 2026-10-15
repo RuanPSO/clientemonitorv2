@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="description" content="Documentação interativa da API ClientMonitor.">
+    <title>Documentação da API | ClientMonitor</title>
+    <link rel="stylesheet" href="/docs/docs.css">
+    <script src="/docs/docs.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar" aria-label="Navegação da documentação">
+        <a class="brand" href="/docs" aria-label="Página inicial da documentação">
+          <span class="brand-mark" aria-hidden="true">C</span>
+          <span><strong>ClientMonitor</strong><small>API reference</small></span>
+        </a>
+        <div class="sidebar-controls">
+          <label class="search-label" for="search">Pesquisar documentação</label>
+          <input id="search" type="search" placeholder="Nome, caminho ou descrição..." autocomplete="off">
+          <label class="search-label" for="method-filter">Método HTTP</label>
+          <select id="method-filter">
+            <option value="all">Todos os métodos</option>
+            <option value="get">GET</option>
+            <option value="post">POST</option>
+          </select>
+        </div>
+        <nav id="navigation" class="navigation" aria-label="Endpoints"></nav>
+        <div class="sidebar-footer">
+          <a href="/docs/openapi.json" target="_blank" rel="noreferrer">Especificação OpenAPI 3.0.3</a>
+          <button id="theme-toggle" class="theme-toggle" type="button">Alternar tema</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Abrir navegação" aria-expanded="false">☰</button>
+          <div class="breadcrumbs"><span>Documentação</span><span aria-hidden="true">/</span><strong id="breadcrumb-current">Visão geral</strong></div>
+          <span class="api-version" id="top-version">Carregando versão...</span>
+        </header>
+        <div id="content" class="content" aria-live="polite">
+          <section class="loading-state" role="status">
+            <span class="spinner" aria-hidden="true"></span>
+            <p>Carregando documentação da API...</p>
+          </section>
+        </div>
+        <footer class="page-footer">
+          <span>ClientMonitor API</span>
+          <a href="/docs/openapi.json">OpenAPI JSON</a>
+        </footer>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
