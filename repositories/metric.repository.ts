@@ -1010,7 +1010,9 @@ export class MetricRepository {
       status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
       host_status: 'ENABLED' | 'DISABLED'
       icmp_ping: number | null
+      agent_ping: number | null
       ping_available: boolean
+      ping_source: 'icmpping' | 'agent.ping' | null
       latency_ms: number | null
       uptime_seconds: number | null
       uptime_days: number | null
@@ -1022,20 +1024,34 @@ export class MetricRepository {
         hostid: bigint
         host_status: number
         icmp_ping: number | null
+        agent_ping: number | null
         latency_seconds: number | null
         uptime_seconds: bigint | number | null
       }>
     >`
       WITH
       pings AS (
-        SELECT i.hostid, u.value
-        FROM items i
-        JOIN LATERAL (
-          SELECT value FROM history_uint
-          WHERE itemid = i.itemid
-          ORDER BY clock DESC LIMIT 1
-        ) u ON true
-        WHERE i.key_ = 'icmpping'
+        SELECT
+          hostid,
+          MAX(value) FILTER (WHERE key_ = 'icmpping') AS icmp_ping,
+          MAX(value) FILTER (WHERE key_ = 'agent.ping') AS agent_ping
+        FROM (
+          SELECT DISTINCT ON (i.hostid, i.key_)
+            i.hostid,
+            i.key_,
+            u.value
+          FROM items i
+          JOIN LATERAL (
+            SELECT value, clock
+            FROM history_uint
+            WHERE itemid = i.itemid
+            ORDER BY clock DESC
+            LIMIT 1
+          ) u ON true
+          WHERE i.key_ IN ('icmpping', 'agent.ping')
+          ORDER BY i.hostid, i.key_, u.clock DESC
+        ) latest_pings
+        GROUP BY hostid
       ),
       latencias AS (
         SELECT i.hostid, h.value
@@ -1060,7 +1076,8 @@ export class MetricRepository {
       SELECT
         h.hostid,
         h.status AS host_status,
-        p.value AS icmp_ping,
+        p.icmp_ping,
+        p.agent_ping,
         l.value AS latency_seconds,
         u.value AS uptime_seconds
       FROM hosts h
@@ -1073,10 +1090,12 @@ export class MetricRepository {
     return rows.map((r) => {
       const hostEnabled = Number(r.host_status) === 0
       const icmp = r.icmp_ping !== null ? Number(r.icmp_ping) : null
+      const agentPing = r.agent_ping !== null ? Number(r.agent_ping) : null
+      const ping = icmp ?? agentPing
 
       let status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
       if (!hostEnabled) status = 'DISABLED'
-      else if (icmp !== null) status = icmp === 1 ? 'UP' : 'DOWN'
+      else if (ping !== null) status = ping === 1 ? 'UP' : 'DOWN'
       else status = 'UNKNOWN'
 
       const lat = r.latency_seconds !== null ? Number(r.latency_seconds) : null
@@ -1087,7 +1106,9 @@ export class MetricRepository {
         status,
         host_status: hostEnabled ? 'ENABLED' : 'DISABLED',
         icmp_ping: icmp,
-        ping_available: icmp !== null,
+        agent_ping: agentPing,
+        ping_available: ping !== null,
+        ping_source: icmp !== null ? 'icmpping' : agentPing !== null ? 'agent.ping' : null,
         latency_ms: lat !== null ? Math.round(lat * 1000 * 100) / 100 : null,
         uptime_seconds: up,
         uptime_days: up !== null ? Math.round((up / 86400) * 100) / 100 : null,
@@ -1245,7 +1266,9 @@ export class MetricRepository {
     status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
     host_status: 'ENABLED' | 'DISABLED'
     icmp_ping: number | null
+    agent_ping: number | null
     ping_available: boolean
+    ping_source: 'icmpping' | 'agent.ping' | null
     latency_ms: number | null
     uptime_seconds: number | null
     uptime_days: number | null
@@ -1258,22 +1281,44 @@ export class MetricRepository {
         hostid: bigint
         host_status: number
         icmp_ping: number | null
+        agent_ping: number | null
         latency_seconds: number | null
         uptime_seconds: bigint | number | null
       }>
     >`
       WITH
       pings AS (
-        SELECT u.value
-        FROM items i
-        JOIN LATERAL (
-          SELECT value FROM history_uint
-          WHERE itemid = i.itemid
-          ORDER BY clock DESC LIMIT 1
-        ) u ON true
-        WHERE i.hostid = ${hostIdBig}
-          AND i.key_ = 'icmpping'
-        LIMIT 1
+        SELECT
+          (
+            SELECT u.value
+            FROM items i
+            JOIN LATERAL (
+              SELECT value, clock
+              FROM history_uint
+              WHERE itemid = i.itemid
+              ORDER BY clock DESC
+              LIMIT 1
+            ) u ON true
+            WHERE i.hostid = ${hostIdBig}
+              AND i.key_ = 'icmpping'
+            ORDER BY u.clock DESC
+            LIMIT 1
+          ) AS icmp_ping,
+          (
+            SELECT u.value
+            FROM items i
+            JOIN LATERAL (
+              SELECT value, clock
+              FROM history_uint
+              WHERE itemid = i.itemid
+              ORDER BY clock DESC
+              LIMIT 1
+            ) u ON true
+            WHERE i.hostid = ${hostIdBig}
+              AND i.key_ = 'agent.ping'
+            ORDER BY u.clock DESC
+            LIMIT 1
+          ) AS agent_ping
       ),
       latencias AS (
         SELECT h.value
@@ -1302,7 +1347,8 @@ export class MetricRepository {
       SELECT
         h.hostid,
         h.status AS host_status,
-        (SELECT value FROM pings) AS icmp_ping,
+        (SELECT icmp_ping FROM pings) AS icmp_ping,
+        (SELECT agent_ping FROM pings) AS agent_ping,
         (SELECT value FROM latencias) AS latency_seconds,
         (SELECT value FROM uptimes) AS uptime_seconds
       FROM hosts h
@@ -1317,7 +1363,9 @@ export class MetricRepository {
         status: 'UNKNOWN',
         host_status: 'DISABLED',
         icmp_ping: null,
+        agent_ping: null,
         ping_available: false,
+        ping_source: null,
         latency_ms: null,
         uptime_seconds: null,
         uptime_days: null,
@@ -1327,10 +1375,12 @@ export class MetricRepository {
 
     const hostEnabled = Number(r.host_status) === 0
     const icmp = r.icmp_ping !== null ? Number(r.icmp_ping) : null
+    const agentPing = r.agent_ping !== null ? Number(r.agent_ping) : null
+    const ping = icmp ?? agentPing
 
     let status: 'UP' | 'DOWN' | 'DISABLED' | 'UNKNOWN'
     if (!hostEnabled) status = 'DISABLED'
-    else if (icmp !== null) status = icmp === 1 ? 'UP' : 'DOWN'
+    else if (ping !== null) status = ping === 1 ? 'UP' : 'DOWN'
     else status = 'UNKNOWN'
 
     const lat = r.latency_seconds !== null ? Number(r.latency_seconds) : null
@@ -1341,7 +1391,9 @@ export class MetricRepository {
       status,
       host_status: hostEnabled ? 'ENABLED' : 'DISABLED',
       icmp_ping: icmp,
-      ping_available: icmp !== null,
+      agent_ping: agentPing,
+      ping_available: ping !== null,
+      ping_source: icmp !== null ? 'icmpping' : agentPing !== null ? 'agent.ping' : null,
       latency_ms: lat !== null ? Math.round(lat * 1000 * 100) / 100 : null,
       uptime_seconds: up,
       uptime_days: up !== null ? Math.round((up / 86400) * 100) / 100 : null,

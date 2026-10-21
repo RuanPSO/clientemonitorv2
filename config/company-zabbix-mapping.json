@@ -1,0 +1,29 @@
+{
+  "companyToGroup": {
+    "SPS Enterprise": "SPS_MATRIZ",
+    "SPS Soluções": "SPS_MATRIZ",
+    "SPS Gestão": "SPS_MATRIZ",
+    "SPS GROUP": "SPS_MATRIZ",
+    "SPS Minas": "SPS_BH",
+    "SPS Rio": "SPS_RJ",
+    "SPS CWB": "SPS_CURITIBA"
+  },
+  "availableGroups": [
+    "SPS_MATRIZ",
+    "SPS_BH",
+    "SPS_RJ",
+    "SPS_CURITIBA",
+    "SPS_BOLIVIA",
+    "SPS_INNO"
+  ],
+  "fallback": {
+    "unmappedCompany": {
+      "policy": "all_groups",
+      "groups": "availableGroups"
+    },
+    "emptyCompany": {
+      "policy": "no_group",
+      "groupName": null
+    }
+  }
+}

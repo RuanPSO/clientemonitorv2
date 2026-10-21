@@ -63,10 +63,11 @@ npm run dev
 O backend escuta em IPv4 e IPv6 e pode ser acessado por `http://localhost:3000` ou `http://127.0.0.1:3000`. Se um processo antigo estiver usando a porta, encerre apenas a instância antiga do ClientMonitor antes de iniciar outra. Inicie o frontend existente em outro terminal. Para o frontend, configure `VITE_API_URL=http://localhost:3000` no ambiente dele, sem sobrescrever configuração local existente. Não há arquivos React neste repositório para editar; a integração de UI futura deve:
 
 1. Navegar para `${VITE_API_URL}/auth/login` ao iniciar o login.
-2. Após o retorno para `/dashboard`, carregar `${VITE_API_URL}/auth/me` usando `fetch(..., { credentials: 'include' })`.
-3. Em `401` com `{ "needsLogin": true }`, navegar para `/auth/login`; outras respostas não-OK devem ser tratadas como erro explícito.
-4. Usar o JSON de `/auth/me` já carregado para exibir o usuário, grupos, IP e origem; não chamar Graph no navegador.
-5. Navegar para `${VITE_API_URL}/auth/logout` ao sair. O retorno contém `signedOut=1`; mostrar “Sessão encerrada” e oferecer o botão de login, sem iniciar login automaticamente.
+2. O callback consulta `companyName` no Microsoft Graph e sempre redireciona para `/dashboard` sob `FRONTEND_URL`. O frontend consulta `/auth/me` para renderizar a experiência indicada pelo backend.
+3. Carregar `${VITE_API_URL}/auth/me` usando `fetch(..., { credentials: 'include' })` e confirmar a experiência recebida antes de montar uma página.
+4. Em `401` com `{ "needsLogin": true }`, navegar para `/auth/login`; outras respostas não-OK devem ser tratadas como erro explícito.
+5. Usar o JSON de `/auth/me` já carregado para exibir o usuário, grupos, IP, origem e `experience`; não chamar Graph no navegador.
+6. Navegar para `${VITE_API_URL}/auth/logout` ao sair. O retorno contém `signedOut=1`; mostrar “Sessão encerrada” e oferecer o botão de login, sem iniciar login automaticamente.
 
 ### Rotas Microsoft e validação
 
@@ -74,16 +75,40 @@ O backend escuta em IPv4 e IPv6 e pode ser acessado por `http://localhost:3000` 
 | --- | --- |
 | `GET /health` | Smoke test: deve responder JSON com `status: "ok"`. |
 | `GET /auth/login` | Abra no navegador; inicia o redirect para a Microsoft com `prompt=select_account`. |
-| `GET /auth/callback` | Callback Web configurado no Entra. É chamado pela Microsoft; código ausente ou estado inválido é rejeitado. |
+| `GET /auth/callback` | Callback Web configurado no Entra. Valida code/state, consulta `companyName` via Graph e sempre redireciona a `/dashboard`; falha de token/Graph responde `502` sem autenticar a sessão. |
 | `GET /auth/silent` | Com cookie de sessão, tenta renovar/adquirir token sem redirecionar; sem sessão retorna `401 { "needsLogin": true }`. |
-| `GET /auth/me` | Com sessão, consulta `/me` e `/memberOf` no Graph e responde `{ user, groups, clientIp, source: "graph" }`; sem sessão retorna `401 { "needsLogin": true }`. |
+| `GET /auth/me` | Com sessão, consulta `/me` e `/memberOf` no Graph e responde `{ user, groups, clientIp, source: "graph", experience }`; `experience` vem da sessão e, se ausente, é `secondary`. Sem sessão retorna `401 { "needsLogin": true }`. |
 | `GET /auth/logout` | Destrói a sessão e redireciona para logout Microsoft; o retorno configurado é `FRONTEND_URL/?signedOut=1`. |
 
 Para validar sessão e Graph em funcionamento é necessário completar o login real usando um tenant com callback, segredo e permissões configurados. Não envie tokens à aplicação frontend. O endpoint de foto de perfil está disponível internamente em `getGraphPhoto(accessToken)` e retorna um `Buffer`; não faz parte do JSON de `/auth/me`.
 
+### Experiência normal e secundária
+
+A allow-list é carregada uma vez no startup a partir de `config/authorized-companies.json`, separada de `config/access-rules.json`. O arquivo é obrigatório e inválido/ausente impede a inicialização. Exemplo:
+
+```json
+{
+  "companies": [
+    { "companyname": "datacore" }
+  ]
+}
+```
+
+A comparação é exata após `trim().toLowerCase()`. Match resulta em `experience: "normal"`; empresa diferente, vazia, nula ou ausente resulta em `"secondary"`. O backend salva a empresa normalizada e a experiência na sessão. Alterar a allow-list requer reiniciar/reimplantar cada instância.
+
+As rotas de dados de hosts, grupos, incidentes, relatórios, SLA e serviços verificam a experiência normal quando a requisição tem sessão Entra. Para manter compatibilidade, uma chamada autenticada apenas por JWT legado continua funcionando sem a verificação de experiência; isso é um bypass pendente que deve ser resolvido antes de considerar toda a API protegida por página. A rota `GET /host/by-name/:hostname/relatorio` exige diretamente sessão Entra normal. Ainda não existem endpoints de dados específicos da experiência secundária neste backend.
+
+Login/callback/logout/`/auth/me`, health check e documentação são compartilhados. As rotas de Guacamole permanecem fora da política de experiência e algumas continuam sem autenticação; não devem ser consideradas protegidas pela separação de páginas. A autenticação JWT/senha não foi alterada nesta etapa.
+
+### Diagnóstico de mapeamento empresa-Zabbix
+
+Com o backend reiniciado, abra `http://localhost:3000/admin/company-zabbix-test`. A página consulta `/auth/me` na mesma origem e usa o cookie de sessão Microsoft existente; sem sessão, mostra o link para `/auth/login`. O perfil apresentado vem da resposta de `/auth/me`, e o resultado real do diagnóstico é calculado no backend com o `companyName` guardado na sessão. A configuração fica em `config/company-zabbix-mapping.json`; empresas preenchidas sem mapeamento, incluindo `Cloud Core`, usam `all_groups` e retornam todos os `availableGroups`. Empresa vazia ou nula usa `no_group` e retorna uma lista vazia.
+
+O campo de simulação é enviado separadamente e só calcula um resultado diagnóstico. A rota protegida `POST /admin/company-zabbix-test/result` continua usando a identidade da sessão para o resultado real, não concede permissões nem consulta hosts. Os grupos `SPS_BOLIVIA` e `SPS_INNO` estão disponíveis para configurações futuras.
+
 ### Fluxo e segurança
 
-O navegador inicia `/auth/login`; o backend salva estado OAuth e redireciona à Microsoft; `/auth/callback` troca o código, salva conta/cache MSAL por sessão e redireciona a `/dashboard`; o navegador envia o cookie de sessão em `/auth/me`; o backend adquire token silenciosamente e consulta Microsoft Graph. Códigos OAuth, tokens, cookies e headers de autorização não devem ser registrados. O log HTTP usa somente `req.path`, sem query string.
+O navegador inicia `/auth/login`; o backend salva estado OAuth e redireciona à Microsoft; `/auth/callback` troca o código, consulta `companyName` no Graph, salva conta/cache MSAL, empresa normalizada e decisão por sessão e sempre redireciona para `/dashboard`; o navegador envia o cookie de sessão em `/auth/me`; o backend consulta perfil e grupos, e o frontend renderiza a experiência informada. A auditoria da classificação registra somente experiência, motivo categorizado, tenant e horário. Códigos OAuth, tokens, cookies, headers de autorização e payloads completos do Graph não devem ser registrados. O log HTTP usa somente `req.path`, sem query string.
 
 O cache MSAL é serializado dentro da sessão de cada usuário e cada chamada usa um cliente MSAL com cache plugin associado àquela sessão, sem cache global compartilhado. IP encaminhado é processado na ordem informada; em produção, configure `trust proxy` somente se a aplicação estiver atrás de proxy confiável, pois cabeçalhos `x-forwarded-for` podem ser falsificados quando expostos diretamente.
 

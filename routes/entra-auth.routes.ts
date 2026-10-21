@@ -8,6 +8,11 @@ import {
   getAuthUrl,
   type MicrosoftSession,
 } from '../config/msal.js'
+import {
+  classifyExperience,
+  normalizeCompanyName,
+} from '../config/authorized-companies.js'
+import { resolveCompanyHostGroups } from '../config/company-host-groups.js'
 import { normalizeUserProfile, type GraphUser } from '../mappers/userMapper.js'
 import { requireMicrosoftAccount } from '../middlewares/entra-auth.middleware.js'
 import { getGraphGroups, getGraphProfile, GraphServiceError } from '../services/graph.js'
@@ -53,6 +58,12 @@ export function createMicrosoftAuthRouter(
   router.get('/login', async (req: Request, res: Response) => {
     try {
       logger.info('Iniciando autenticação Microsoft', { clientIp: getClientIp(req) })
+      delete req.session.account
+      delete req.session.companyName
+      delete req.session.experience
+      delete req.session.user
+      delete req.session.graphUser
+      delete req.session.jobTitle
       const state = randomBytes(32).toString('hex')
       req.session.oauthState = state
       await saveSession(req)
@@ -85,10 +96,55 @@ export function createMicrosoftAuthRouter(
     }
 
     try {
-      const result = await dependencies.acquireTokenByCode(code, req.session)
+      let result: MicrosoftTokenResult | null
+      try {
+        result = await dependencies.acquireTokenByCode(code, req.session)
+      } catch {
+        logger.warn('Decisão de experiência não concluída', {
+          experience: null,
+          reason: 'profile_lookup_failed',
+          tenantId: process.env.AZURE_TENANT_ID ?? '',
+          timestamp: new Date().toISOString(),
+        })
+        return res.status(502).json({
+          error: 'Não foi possível obter token para consultar o perfil no Microsoft Graph',
+        })
+      }
+
       if (!result?.account) {
         return res.status(401).json({ error: 'A Microsoft não retornou uma conta autenticada' })
       }
+
+      const tenantId = result.account.tenantId
+      let profile: Record<string, unknown>
+      try {
+        if (!result.accessToken) {
+          throw new Error('Token Microsoft indisponível para consultar o perfil')
+        }
+        profile = await dependencies.getGraphProfile(result.accessToken)
+      } catch {
+        logger.warn('Decisão de experiência não concluída', {
+          experience: null,
+          reason: 'profile_lookup_failed',
+          tenantId,
+          timestamp: new Date().toISOString(),
+        })
+        return res.status(502).json({
+          error: 'Não foi possível determinar a experiência do usuário no Microsoft Graph',
+        })
+      }
+
+      const graphCompanyName = (profile as GraphUser).companyName
+      const companyName = normalizeCompanyName(graphCompanyName)
+      const experience = classifyExperience(companyName)
+      const hostGroupsScope = experience === 'secondary'
+        ? resolveCompanyHostGroups(graphCompanyName)
+        : null
+      const reason = experience === 'normal'
+        ? 'allowlist_match'
+        : companyName
+          ? 'company_not_allowed'
+          : 'company_missing'
 
       const cache = req.session.msalCache
       await new Promise<void>((resolve, reject) => {
@@ -96,10 +152,28 @@ export function createMicrosoftAuthRouter(
       })
       req.session.account = result.account
       if (cache) req.session.msalCache = cache
+      req.session.companyName = companyName
+      req.session.experience = experience
+      if (hostGroupsScope) {
+        req.session.allowedHostGroups = hostGroupsScope.allowedHostGroups
+        logger.info('Escopo de hosts secondary calculado', {
+          companyName: hostGroupsScope.normalizedCompanyName,
+          allowedGroupCount: hostGroupsScope.allowedHostGroups.length,
+          reason: hostGroupsScope.reason,
+        })
+      }
       await saveSession(req)
+      logger.info('Decisão de experiência Microsoft', {
+        experience,
+        reason,
+        tenantId,
+        timestamp: new Date().toISOString(),
+      })
+
       const frontendUrl = new URL(process.env.FRONTEND_URL ?? 'http://localhost:5173')
       frontendUrl.pathname = '/dashboard'
       frontendUrl.search = ''
+      frontendUrl.hash = ''
       return res.redirect(302, frontendUrl.toString())
     } catch (error) {
       logger.error('Falha no callback Microsoft', { errorName: safeErrorName(error) })
@@ -139,8 +213,16 @@ export function createMicrosoftAuthRouter(
         dependencies.getGraphGroups(accessToken),
       ])
       const user = normalizeUserProfile(profile as GraphUser, account.tenantId)
-      logger.debug('Microsoft Graph normalized profile', user)
-      return res.json({ user, groups, clientIp: getClientIp(req), source: 'graph' })
+      req.session.user = user
+      req.session.graphUser = user
+      req.session.jobTitle = user.jobTitle
+      return res.json({
+        user,
+        groups,
+        clientIp: getClientIp(req),
+        source: 'graph',
+        experience: req.session.experience ?? 'secondary',
+      })
     } catch (error) {
       if (error instanceof GraphServiceError) {
         return res.status(error.status).json({ error: error.message })

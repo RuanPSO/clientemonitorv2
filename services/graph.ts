@@ -55,7 +55,6 @@ export async function getGraphProfile(accessToken: string): Promise<Record<strin
       },
       timeout: GRAPH_TIMEOUT_MS,
     })
-    logger.debug('Microsoft Graph profile payload', response.data)
     return response.data as Record<string, unknown>
   } catch (error) {
     throw graphError(error)

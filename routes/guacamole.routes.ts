@@ -2,6 +2,8 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { GuacamoleService } from '../services/guacamole.service.js'
+import { getAllowedCompanyGroups } from './_company-scope.js'
+import { ZabbixService } from '../services/zabbix.service.js'
 
 const router = Router()
 
@@ -48,6 +50,13 @@ router.post('/guacamole/connect-full', async (req: Request, res: Response) => {
     const { hostname, porta, email } = req.body ?? {}
     if (!hostname || porta === undefined || !email) {
       return res.status(400).json({ erro: 'hostname, porta e email são obrigatórios' })
+    }
+    if (req.session?.experience === 'secondary') {
+      const groups = await getAllowedCompanyGroups(req.session.allowedHostGroups ?? [])
+      const groupids = groups.map((group) => group.groupid)
+      const allowed = groupids.length > 0 &&
+        await ZabbixService.hostNameBelongsToGroups(String(hostname).trim(), groupids)
+      if (!allowed) return res.status(404).json({ erro: 'Host não encontrado' })
     }
     const resultado = await GuacamoleService.conectarOuCriar(
       String(hostname),

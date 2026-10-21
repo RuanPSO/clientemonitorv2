@@ -5,7 +5,12 @@ import { test } from 'node:test'
 import express from 'express'
 import session from 'express-session'
 import type { AccountInfo, AuthenticationResult } from '@azure/msal-node'
+import jwt from 'jsonwebtoken'
 import { createMicrosoftAuthRouter, type MicrosoftAuthDependencies } from '../routes/entra-auth.routes.js'
+import {
+  requireExperience,
+  requireExperienceOrLegacyJwt,
+} from '../middlewares/experience.middleware.js'
 import { GraphServiceError } from '../services/graph.js'
 
 const account: AccountInfo = {
@@ -56,6 +61,28 @@ async function startApi(overrides: Partial<MicrosoftAuthDependencies> = {}) {
     cookie: { httpOnly: true, sameSite: 'lax' },
   }))
   app.use('/auth', createMicrosoftAuthRouter(dependencies(overrides)))
+  app.get('/test/experience/normal', requireExperience('normal'), (_req, res) => {
+    res.json({ experience: 'normal' })
+  })
+  app.get('/test/experience/secondary', requireExperience('secondary'), (_req, res) => {
+    res.json({ experience: 'secondary' })
+  })
+  app.get('/test/legacy-jwt', requireExperienceOrLegacyJwt('normal'), (_req, res) => {
+    res.json({ legacy: true })
+  })
+  app.get('/test/guarded-normal', requireExperienceOrLegacyJwt('normal'), (_req, res) => {
+    res.json({ experience: 'normal' })
+  })
+  app.get('/test/scope', (req, res) => {
+    res.json({ allowedHostGroups: req.session.allowedHostGroups ?? null })
+  })
+  app.post('/test/clear-experience', (req, res, next) => {
+    delete req.session.experience
+    req.session.save((error) => {
+      if (error) return next(error)
+      return res.json({ ok: true })
+    })
+  })
   const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
   const address = server.address() as AddressInfo
@@ -75,19 +102,24 @@ function sessionCookie(response: Response): string {
 }
 
 async function login(api: Awaited<ReturnType<typeof startApi>>): Promise<string> {
-  const loginResponse = await fetch(`${api.baseUrl}/auth/login`, { redirect: 'manual' })
-  assert.equal(loginResponse.status, 302)
-  const loginCookie = sessionCookie(loginResponse)
-  const state = new URL(loginResponse.headers.get('location')!).searchParams.get('state')
-  assert.ok(state)
-
+  const { cookie, state } = await beginLogin(api)
   const callbackResponse = await fetch(
     `${api.baseUrl}/auth/callback?code=mock-code&state=${encodeURIComponent(state)}`,
-    { headers: { cookie: loginCookie }, redirect: 'manual' },
+    { headers: { cookie }, redirect: 'manual' },
   )
   assert.equal(callbackResponse.status, 302)
   assert.equal(callbackResponse.headers.get('location'), 'http://localhost:5173/dashboard')
   return sessionCookie(callbackResponse)
+}
+
+async function beginLogin(api: Awaited<ReturnType<typeof startApi>>) {
+  const loginResponse = await fetch(`${api.baseUrl}/auth/login`, { redirect: 'manual' })
+  assert.equal(loginResponse.status, 302)
+  const cookie = sessionCookie(loginResponse)
+  const state = new URL(loginResponse.headers.get('location')!).searchParams.get('state')
+  assert.ok(state)
+
+  return { cookie, state }
 }
 
 test('callback trata code ausente e erros retornados pelo Entra', async () => {
@@ -158,6 +190,7 @@ test('callback salva sessão e /me retorna perfil Graph normalizado', async () =
       groups: [{ id: 'group-id' }],
       clientIp: '127.0.0.1',
       source: 'graph',
+      experience: 'secondary',
     })
   } finally {
     await api.close()
@@ -211,6 +244,262 @@ test('erro do Graph preserva o status e logout destrói a sessão', async () => 
       'http://localhost:5173/?signedOut=1',
     )
     assert.match(logout.headers.get('set-cookie') ?? '', /^clientemonitor\.sid=;/)
+  } finally {
+    await api.close()
+  }
+})
+
+test('callback classifica as variantes autorizadas e redireciona somente para caminhos fixos', async () => {
+  for (const companyName of ['datacore', 'Datacore', ' datacore ']) {
+    const api = await startApi({
+      getGraphProfile: async () => ({ companyName }),
+    })
+    try {
+      await login(api)
+    } finally {
+      await api.close()
+    }
+  }
+
+  const api = await startApi({
+    getGraphProfile: async () => ({ companyName: 'datacore' }),
+  })
+  try {
+    const loginResponse = await fetch(
+      `${api.baseUrl}/auth/login?returnUrl=https%3A%2F%2Fevil.example`,
+      { redirect: 'manual' },
+    )
+    const loginCookie = sessionCookie(loginResponse)
+    const state = new URL(loginResponse.headers.get('location')!).searchParams.get('state')
+    assert.ok(state)
+    const callbackResponse = await fetch(
+      `${api.baseUrl}/auth/callback?code=mock-code&state=${encodeURIComponent(state)}&returnUrl=https%3A%2F%2Fevil.example`,
+      { headers: { cookie: loginCookie }, redirect: 'manual' },
+    )
+    assert.equal(callbackResponse.status, 302)
+    assert.equal(callbackResponse.headers.get('location'), 'http://localhost:5173/dashboard')
+  } finally {
+    await api.close()
+  }
+})
+
+test('company ausente, vazio ou não permitido sempre recebe experiência secondary', async () => {
+  const profiles: Array<{ label: string; profile: Record<string, unknown> }> = [
+    { label: 'outra empresa', profile: { companyName: 'Outra empresa' } },
+    { label: 'vazio', profile: { companyName: '' } },
+    { label: 'nulo', profile: { companyName: null } },
+    { label: 'ausente', profile: {} },
+    { label: 'match parcial com sufixo', profile: { companyName: 'datacore fake' } },
+    { label: 'match parcial com prefixo', profile: { companyName: 'mydatacore' } },
+  ]
+
+  for (const { label, profile } of profiles) {
+    const api = await startApi({ getGraphProfile: async () => profile })
+    try {
+      const cookie = await login(api)
+      const response = await fetch(`${api.baseUrl}/auth/me`, { headers: { cookie } })
+      assert.equal(response.status, 200, label)
+      assert.equal((await response.json()).experience, 'secondary', label)
+
+      const normalApi = await fetch(`${api.baseUrl}/test/guarded-normal`, {
+        headers: { cookie },
+      })
+
+      test('callback grava apenas o escopo da empresa quando a experiência é secondary', async () => {
+        const mappedCompanies = [
+          ['SPS Gestão', ['SPS_MATRIZ', 'SPS_INNO']],
+          ['sps gestao', ['SPS_MATRIZ', 'SPS_INNO']],
+          [' SPS  Gestão ', ['SPS_MATRIZ', 'SPS_INNO']],
+          ['SPS Minas', ['SPS_BH']],
+          ['SPS CWB', ['SPS_CURITIBA']],
+          ['SPS RJ', ['SPS_RJ']],
+        ] as const
+
+        for (const [companyName, expectedGroups] of mappedCompanies) {
+          const api = await startApi({ getGraphProfile: async () => ({ companyName }) })
+          try {
+            const cookie = await login(api)
+            const response = await fetch(`${api.baseUrl}/test/scope`, { headers: { cookie } })
+            assert.deepEqual((await response.json()).allowedHostGroups, expectedGroups)
+          } finally {
+            await api.close()
+          }
+        }
+
+        for (const companyName of ['', null, 'Outra Empresa', 'SPS Gestão X']) {
+          const api = await startApi({ getGraphProfile: async () => ({ companyName }) })
+          try {
+            const cookie = await login(api)
+            const response = await fetch(`${api.baseUrl}/test/scope`, { headers: { cookie } })
+            assert.deepEqual((await response.json()).allowedHostGroups, [])
+          } finally {
+            await api.close()
+          }
+        }
+
+        const normalApi = await startApi({ getGraphProfile: async () => ({ companyName: 'Cloud Core' }) })
+        try {
+          const cookie = await login(normalApi)
+          const response = await fetch(`${normalApi.baseUrl}/test/scope`, { headers: { cookie } })
+          assert.equal((await response.json()).allowedHostGroups, null)
+        } finally {
+          await normalApi.close()
+        }
+      })
+      assert.equal(normalApi.status, 403, label)
+    } finally {
+      await api.close()
+    }
+  }
+})
+
+test('falha no Graph não autentica a sessão nem concede experiência normal', async () => {
+  const api = await startApi({
+    getGraphProfile: async () => {
+      throw new GraphServiceError('detalhe privado do Graph', 403)
+    },
+  })
+  try {
+    const { cookie, state } = await beginLogin(api)
+    const callbackResponse = await fetch(
+      `${api.baseUrl}/auth/callback?code=mock-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie }, redirect: 'manual' },
+    )
+    assert.equal(callbackResponse.status, 502)
+    assert.deepEqual(await callbackResponse.json(), {
+      error: 'Não foi possível determinar a experiência do usuário no Microsoft Graph',
+    })
+
+    const me = await fetch(`${api.baseUrl}/auth/me`, { headers: { cookie } })
+    assert.equal(me.status, 401)
+    assert.deepEqual(await me.json(), { needsLogin: true })
+  } finally {
+    await api.close()
+  }
+})
+
+test('falha ao obter token não autentica a sessão', async () => {
+  const api = await startApi({
+    acquireTokenByCode: async () => {
+      throw new Error('erro MSAL confidencial')
+    },
+  })
+  try {
+    const { cookie, state } = await beginLogin(api)
+    const callbackResponse = await fetch(
+      `${api.baseUrl}/auth/callback?code=mock-code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie }, redirect: 'manual' },
+    )
+    assert.equal(callbackResponse.status, 502)
+    assert.deepEqual(await callbackResponse.json(), {
+      error: 'Não foi possível obter token para consultar o perfil no Microsoft Graph',
+    })
+
+    const me = await fetch(`${api.baseUrl}/auth/me`, { headers: { cookie } })
+    assert.equal(me.status, 401)
+  } finally {
+    await api.close()
+  }
+})
+
+test('middleware exige sessão, nega experiência oposta e permite a experiência correspondente', async () => {
+  const api = await startApi()
+  try {
+    const noSession = await fetch(`${api.baseUrl}/test/experience/normal`)
+    assert.equal(noSession.status, 401)
+
+    const secondaryCookie = await login(api)
+    const deniedNormal = await fetch(`${api.baseUrl}/test/experience/normal`, {
+      headers: { cookie: secondaryCookie },
+    })
+    assert.equal(deniedNormal.status, 403)
+    const deniedNormalRoute = await fetch(`${api.baseUrl}/test/guarded-normal`, {
+      headers: { cookie: secondaryCookie },
+    })
+    assert.equal(deniedNormalRoute.status, 403)
+    const allowedSecondary = await fetch(`${api.baseUrl}/test/experience/secondary`, {
+      headers: { cookie: secondaryCookie },
+    })
+    assert.equal(allowedSecondary.status, 200)
+
+    const normalApi = await startApi({
+      getGraphProfile: async () => ({ companyName: 'Cloud Core' }),
+    })
+    try {
+      const normalCookie = await login(normalApi)
+      const allowedNormal = await fetch(`${normalApi.baseUrl}/test/experience/normal`, {
+        headers: { cookie: normalCookie },
+      })
+      assert.equal(allowedNormal.status, 200)
+      const deniedSecondary = await fetch(`${normalApi.baseUrl}/test/experience/secondary`, {
+        headers: { cookie: normalCookie },
+      })
+      assert.equal(deniedSecondary.status, 403)
+    } finally {
+      await normalApi.close()
+    }
+  } finally {
+    await api.close()
+  }
+})
+
+test('JWT legado válido mantém acesso sem sessão Entra', async () => {
+  const secret = process.env.SECRET_KEY ?? process.env.APIKEY
+  assert.ok(secret)
+  const token = jwt.sign({ origem: 'portal' }, secret, { algorithm: 'HS256' })
+  const api = await startApi()
+  try {
+    const response = await fetch(`${api.baseUrl}/test/legacy-jwt`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { legacy: true })
+  } finally {
+    await api.close()
+  }
+})
+
+test('/auth/me usa a decisão persistida e retorna secondary quando a sessão não tem classificação', async () => {
+  let graphCompanyName = 'Cloud Core'
+  const api = await startApi({
+    getGraphProfile: async () => ({ companyName: graphCompanyName }),
+  })
+  try {
+    const cookie = await login(api)
+    graphCompanyName = 'Outra empresa'
+    const current = await fetch(`${api.baseUrl}/auth/me`, { headers: { cookie } })
+    assert.equal((await current.json()).experience, 'normal')
+
+    const clear = await fetch(`${api.baseUrl}/test/clear-experience`, {
+      method: 'POST',
+      headers: { cookie },
+    })
+    assert.equal(clear.status, 200)
+    const missingExperience = await fetch(`${api.baseUrl}/auth/me`, { headers: { cookie } })
+    assert.equal((await missingExperience.json()).experience, 'secondary')
+  } finally {
+    await api.close()
+  }
+})
+
+test('logout seguido por login de outra empresa não reaproveita a decisão anterior', async () => {
+  let graphCompanyName = 'datacore'
+  const api = await startApi({
+    getGraphProfile: async () => ({ companyName: graphCompanyName }),
+  })
+  try {
+    const firstCookie = await login(api)
+    const logout = await fetch(`${api.baseUrl}/auth/logout`, {
+      headers: { cookie: firstCookie },
+      redirect: 'manual',
+    })
+    assert.equal(logout.status, 302)
+
+    graphCompanyName = 'Outra empresa'
+    const secondCookie = await login(api)
+    assert.notEqual(secondCookie, firstCookie)
+    const response = await fetch(`${api.baseUrl}/auth/me`, { headers: { cookie: secondCookie } })
+    assert.equal((await response.json()).experience, 'secondary')
   } finally {
     await api.close()
   }

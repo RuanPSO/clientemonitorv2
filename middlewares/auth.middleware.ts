@@ -1,5 +1,6 @@
 // middlewares/auth.middleware.ts
 import 'dotenv/config'
+import type { AccountInfo } from '@azure/msal-node'
 import type { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 
@@ -17,6 +18,8 @@ export interface JwtPayloadPortal {
   nome?: string
   email?: string
   cargo?: string | null
+  companyName?: string | null
+  jobTitle?: string | null
   grupo?: string
   groupid_zabbix?: string
   iat?: number
@@ -28,6 +31,18 @@ declare global {
     interface Request {
       user?: JwtPayloadPortal
     }
+  }
+}
+
+declare module 'express-session' {
+  interface SessionData {
+    user?: Record<string, unknown>
+    graphUser?: Record<string, unknown>
+    account?: AccountInfo
+    companyName?: string
+    jobTitle?: string
+    oauthState?: string
+    msalCache?: string
   }
 }
 

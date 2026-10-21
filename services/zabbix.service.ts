@@ -150,6 +150,30 @@ export class ZabbixService {
     )
   }
 
+  static async listarGruposComHostsPorGrupos(grupos: GrupoZabbix[]) {
+    const groupids = [...new Set(grupos.map((grupo) => grupo.groupid))].sort()
+    if (groupids.length === 0) return []
+    if (!groupids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de hosts')
+    }
+
+    return cached(
+      `grupos:com-hosts:groups:${groupids.join(',')}`,
+      async () => {
+        const hostsPorGrupo = await HostRepository.getHostsDeGrupos(groupids)
+        return grupos.map((grupo) => ({
+          groupid: grupo.groupid,
+          grupo: grupo.name,
+          hosts: (hostsPorGrupo.get(grupo.groupid) ?? []).map((host) => ({
+            hostid: host.hostid,
+            hostname: host.hostname,
+          })),
+        }))
+      },
+      TTL.HOSTS_DO_GRUPO,
+    )
+  }
+
   // ───────────────────────────────────────────────────────────
   // DETALHES DO HOST (com classificação)
   // ───────────────────────────────────────────────────────────
@@ -561,6 +585,31 @@ export class ZabbixService {
     return cached('hosts:com-ip', () => HostRepository.listarHostsComIp(), TTL.HOSTS_COM_IP)
   }
 
+  static async listarHostsComIpPorGrupos(groupids: string[]) {
+    const ids = [...new Set(groupids)].sort()
+    if (ids.length === 0) return []
+    if (!ids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de hosts')
+    }
+    return cached(
+      `hosts:com-ip:grupos:${ids.join(',')}`,
+      () => HostRepository.listarHostsComIpPorGrupos(ids),
+      TTL.HOSTS_COM_IP,
+    )
+  }
+
+  static async hostBelongsToGroups(hostid: bigint | number, groupids: string[]) {
+    return HostRepository.hostBelongsToGroups(hostid, groupids)
+  }
+
+  static async hostNameBelongsToGroups(hostname: string, groupids: string[]) {
+    return HostRepository.hostNameBelongsToGroups(hostname, groupids)
+  }
+
+  static async listarHostsIdsPorGrupos(groupids: string[]) {
+    return HostRepository.getHostIdsDeGrupos(groupids)
+  }
+
   static async getHostComIp(hostid: bigint | number) {
     const id = hostid.toString()
     return cached(
@@ -656,6 +705,9 @@ export class ZabbixService {
           status: statusInfo.status,
           host_status: statusInfo.host_status,
           icmp_ping: statusInfo.icmp_ping,
+          agent_ping: statusInfo.agent_ping,
+          ping_available: statusInfo.ping_available,
+          ping_source: statusInfo.ping_source,
           latency_ms: statusInfo.latency_ms,
           uptime_seconds: statusInfo.uptime_seconds,
           uptime_days: statusInfo.uptime_days,

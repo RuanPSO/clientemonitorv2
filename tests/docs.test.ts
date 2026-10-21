@@ -53,6 +53,22 @@ test('OpenAPI deriva versão, caminhos e operações do catálogo confirmado', (
     openApiDocument.paths['/host/{hostid}/metrics']?.get?.security,
     [{ bearerAuth: [] }],
   )
+  assert.deepEqual(
+    openApiDocument.paths['/host/by-name/{hostname}/relatorio']?.get?.security,
+    [{ microsoftSession: [] }],
+  )
+  for (const path of [
+    '/incidentes/ativos',
+    '/incidentes/hosts-totais',
+    '/incidentes/problemas-24h',
+    '/incidentes/dashboard',
+  ]) {
+    assert.deepEqual(
+      openApiDocument.paths[path]?.get?.security,
+      [{ bearerAuth: [] }],
+      `${path} deve exigir JWT Bearer`,
+    )
+  }
   assert.equal(openApiDocument.paths['/auth/me']?.get?.security?.[0]?.microsoftSession?.length, 0)
 
   const documentedPaths = Object.keys(openApiDocument.paths)

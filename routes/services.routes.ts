@@ -1,7 +1,7 @@
 // routes/services.routes.ts
 import { Router, type Request, type Response } from 'express'
 import { ZabbixService } from '../services/zabbix.service.js'
-import { validarToken } from '../middlewares/auth.middleware.js'
+import { requireExperienceOrLegacyJwt } from '../middlewares/experience.middleware.js'
 import { parseHostid, parsePeriodoTimestamps } from './_helpers.js'
 
 const router = Router()
@@ -12,7 +12,7 @@ const router = Router()
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/services/history',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -31,7 +31,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/services/timeline',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)

@@ -1,0 +1,25 @@
+{
+  "_comment": "SPS_BOLIVIA foi intencionalmente omitido: não possui companyName associado.",
+  "companies": [
+    {
+      "companyname": "SPS Gestão",
+      "groups": ["SPS_MATRIZ", "SPS_INNO"]
+    },
+    {
+      "companyname": "SPS Minas",
+      "groups": ["SPS_BH"]
+    },
+    {
+      "companyname": "SPS BH",
+      "groups": ["SPS_BH"]
+    },
+    {
+      "companyname": "SPS CWB",
+      "groups": ["SPS_CURITIBA"]
+    },
+    {
+      "companyname": "SPS RJ",
+      "groups": ["SPS_RJ"]
+    }
+  ]
+}

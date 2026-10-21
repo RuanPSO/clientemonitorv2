@@ -5,5 +5,8 @@ declare module 'express-session' {
     msalCache?: string
     account?: AccountInfo
     oauthState?: string
+    companyName?: string
+    experience?: 'normal' | 'secondary'
+    allowedHostGroups?: string[]
   }
 }

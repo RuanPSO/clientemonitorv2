@@ -210,7 +210,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/auth/callback',
     category: 'Microsoft Entra ID',
     summary: 'Concluir callback Microsoft',
-    description: 'Callback OAuth chamado pelo Entra ID; valida o código e o estado associados à sessão.',
+    description: 'Valida o código e o estado OAuth, consulta companyName no Microsoft Graph e redireciona para /dashboard. A experiência é informada em /auth/me e aplicada pelo backend nas APIs. Falhas de token ou Graph respondem 502 sem autenticar a sessão.',
     auth: 'public',
     query: [
       { name: 'code', type: 'string', required: true, description: 'Código OAuth enviado pelo Entra ID.' },
@@ -218,7 +218,7 @@ export const apiOperations: ApiOperation[] = [
       { name: 'error', type: 'string', required: false, description: 'Erro OAuth, quando a autenticação não é concluída.' },
     ],
     successStatus: '302',
-    successDescription: 'Redirecionamento para o frontend após autenticação concluída.',
+    successDescription: 'Redirecionamento para um caminho fixo do frontend conforme a experiência decidida pelo backend.',
   },
   {
     operationId: 'refreshMicrosoftSession',
@@ -236,7 +236,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/auth/me',
     category: 'Microsoft Entra ID',
     summary: 'Consultar perfil Microsoft',
-    description: 'Obtém o perfil e os grupos do usuário autenticado por meio do Microsoft Graph.',
+    description: 'Obtém o perfil e os grupos do Microsoft Graph e responde { user, groups, clientIp, source, experience }. A experiência vem da sessão; se estiver ausente, retorna secondary.',
     auth: 'microsoft-session',
   },
   {
@@ -265,7 +265,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/:hostid/basico',
     category: 'Hosts',
     summary: 'Consultar dados básicos do host',
-    description: 'Retorna informações básicas do host.',
+    description: 'Retorna informações básicas do host. Para sessões secondary, o host precisa pertencer a um grupo permitido para a empresa.',
     auth: 'jwt',
   },
   {
@@ -274,7 +274,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/:hostid/services',
     category: 'Hosts',
     summary: 'Listar serviços do host',
-    description: 'Retorna os serviços associados ao host.',
+    description: 'Retorna os serviços associados ao host. Para sessões secondary, o host precisa pertencer a um grupo permitido para a empresa.',
     auth: 'jwt',
   },
   {
@@ -292,8 +292,8 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/by-name/:hostname/relatorio',
     category: 'Hosts',
     summary: 'Consultar relatório pelo nome do host',
-    description: 'Rota pública no código atual. O período inicial e final são obrigatórios; o agrupamento padrão é 15min.',
-    auth: 'public',
+    description: 'Requer sessão Microsoft autenticada com experiência normal. O período inicial e final são obrigatórios; o agrupamento padrão é 15min.',
+    auth: 'microsoft-session',
     query: [
       { name: 'inicio', type: 'string', required: true, description: 'Início do período; formato aceito pelo serviço.', example: '<INICIO_ISO_8601>' },
       { name: 'fim', type: 'string', required: true, description: 'Fim do período; formato aceito pelo serviço.', example: '<FIM_ISO_8601>' },
@@ -306,7 +306,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/hosts/com-ip',
     category: 'Hosts',
     summary: 'Listar hosts com endereço IP',
-    description: 'Retorna os hosts que possuem endereço IP.',
+    description: 'Retorna os hosts que possuem endereço IP. Para sessões secondary, inclui somente hosts associados a grupos permitidos para a empresa.',
     auth: 'jwt',
   },
   {
@@ -324,7 +324,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/hosts/status-ping-uptime',
     category: 'Hosts',
     summary: 'Consultar ping e uptime dos hosts',
-    description: 'Retorna os indicadores de ping e uptime dos hosts.',
+    description: 'Retorna os indicadores de ping e uptime dos hosts. Para sessões secondary, inclui somente hosts associados a grupos permitidos para a empresa.',
     auth: 'jwt',
   },
   {
@@ -333,7 +333,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/:hostid/com-ip',
     category: 'Hosts',
     summary: 'Consultar IP do host',
-    description: 'Retorna o endereço IP associado ao host.',
+    description: 'Retorna o endereço IP associado ao host. Para sessões secondary, o host precisa pertencer a um grupo permitido para a empresa.',
     auth: 'jwt',
   },
   {
@@ -342,7 +342,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/:hostid/active-services',
     category: 'Hosts',
     summary: 'Listar serviços ativos do host',
-    description: 'Retorna os serviços ativos associados ao host.',
+    description: 'Retorna os serviços ativos associados ao host. Para sessões secondary, o host precisa pertencer a um grupo permitido para a empresa.',
     auth: 'jwt',
   },
   {
@@ -378,7 +378,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/:hostid/metrics',
     category: 'Hosts',
     summary: 'Consultar métricas do host',
-    description: 'Retorna o conjunto de métricas preparado para o host.',
+    description: 'Retorna o conjunto de métricas preparado para o host. Para sessões secondary, o host precisa pertencer a um grupo permitido para a empresa.',
     auth: 'jwt',
   },
   {
@@ -387,7 +387,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/grupos',
     category: 'Grupos',
     summary: 'Listar grupos',
-    description: 'Retorna os grupos disponíveis no Zabbix.',
+    description: 'Retorna os grupos disponíveis no Zabbix. Requer um JWT Bearer válido; quando há sessão Microsoft, também verifica se a experiência permite acessar a rota.',
     auth: 'jwt',
   },
   {
@@ -396,7 +396,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/grupo/:chave',
     category: 'Grupos',
     summary: 'Consultar grupo pela chave',
-    description: 'Retorna os hosts associados à chave do grupo.',
+    description: 'Retorna os hosts associados à chave do grupo. Sessões secondary só podem consultar grupos permitidos para a empresa.',
     auth: 'jwt',
   },
   {
@@ -405,7 +405,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/grupo/:chave/hosts-full',
     category: 'Grupos',
     summary: 'Consultar dados completos dos hosts do grupo',
-    description: 'Retorna os dados completos dos hosts associados à chave do grupo.',
+    description: 'Retorna os dados completos dos hosts associados à chave do grupo. Sessões secondary só podem consultar grupos permitidos para a empresa.',
     auth: 'jwt',
   },
   {
@@ -414,7 +414,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/grupos/com-hosts',
     category: 'Grupos',
     summary: 'Listar grupos com hosts',
-    description: 'Retorna os grupos acompanhados de seus hosts.',
+    description: 'Retorna os grupos acompanhados de seus hosts. Sessões secondary recebem somente grupos permitidos para a empresa e os hosts desses grupos.',
     auth: 'jwt',
   },
   {
@@ -525,7 +525,7 @@ export const apiOperations: ApiOperation[] = [
     path: '/guacamole/connect-full',
     category: 'Guacamole',
     summary: 'Criar ou conectar host no Guacamole',
-    description: 'Executa o fluxo de criação/conexão de host. A rota atual não aplica middleware de autenticação.',
+    description: 'Executa o fluxo de criação/conexão de host. Para sessões secondary, valida a associação do host a um grupo permitido para a empresa; o caminho sem sessão mantém o comportamento legado.',
     auth: 'public',
     body: [
       { name: 'hostname', type: 'string', required: true, description: 'Nome do host de destino.', example: '<HOSTNAME>' },
@@ -539,8 +539,8 @@ export const apiOperations: ApiOperation[] = [
     path: '/incidentes/ativos',
     category: 'Incidentes',
     summary: 'Listar incidentes ativos',
-    description: 'Retorna os incidentes ativos do dia.',
-    auth: 'public',
+    description: 'Retorna os incidentes ativos do dia. Requer um JWT Bearer válido; quando há sessão Microsoft, exige experiência normal.',
+    auth: 'jwt',
   },
   {
     operationId: 'getIncidentHostTotals',
@@ -548,8 +548,8 @@ export const apiOperations: ApiOperation[] = [
     path: '/incidentes/hosts-totais',
     category: 'Incidentes',
     summary: 'Consultar totais de hosts por status',
-    description: 'Retorna a contagem de hosts por status.',
-    auth: 'public',
+    description: 'Retorna a contagem de hosts por status. Requer um JWT Bearer válido; quando há sessão Microsoft, exige experiência normal.',
+    auth: 'jwt',
   },
   {
     operationId: 'getRecentProblems',
@@ -557,8 +557,8 @@ export const apiOperations: ApiOperation[] = [
     path: '/incidentes/problemas-24h',
     category: 'Incidentes',
     summary: 'Listar principais problemas das últimas 24 horas',
-    description: 'Retorna os dez principais problemas das últimas 24 horas.',
-    auth: 'public',
+    description: 'Retorna os dez principais problemas das últimas 24 horas. Requer um JWT Bearer válido; quando há sessão Microsoft, exige experiência normal.',
+    auth: 'jwt',
   },
   {
     operationId: 'getIncidentDashboard',
@@ -566,8 +566,8 @@ export const apiOperations: ApiOperation[] = [
     path: '/incidentes/dashboard',
     category: 'Incidentes',
     summary: 'Consultar dados do painel de incidentes',
-    description: 'Retorna os dados agregados usados pelo painel de incidentes.',
-    auth: 'public',
+    description: 'Retorna os dados agregados usados pelo painel de incidentes. Requer um JWT Bearer válido; quando há sessão Microsoft, exige experiência normal.',
+    auth: 'jwt',
   },
 ]
 
@@ -670,7 +670,7 @@ function createOpenApiDocument(): OpenApiDocument {
     info: {
       title: 'ClientMonitor API',
       version: apiVersion,
-      description: 'Documentação das rotas Express catalogadas e confirmadas no código atual.',
+      description: 'Referência das rotas da API confirmadas no código atual. Rotas protegidas por JWT usam o esquema Bearer; quando uma sessão Microsoft acompanha a chamada, as regras de experiência da rota também são aplicadas. Rotas administrativas e de diagnóstico interno não fazem parte deste catálogo.',
     },
     'x-environment': process.env.NODE_ENV ?? 'Não configurado',
     servers: [{ url: '/', description: 'Origem do backend que está servindo esta documentação.' }],

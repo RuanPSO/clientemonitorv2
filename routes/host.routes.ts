@@ -1,17 +1,35 @@
 // routes/host.routes.ts
 import { Router, type Request, type Response } from 'express'
 import { ZabbixService } from '../services/zabbix.service.js'
-import { validarToken } from '../middlewares/auth.middleware.js'
+import { requireExperience, requireExperienceOrLegacyJwt } from '../middlewares/experience.middleware.js'
+import { isHostGroupAllowed } from '../config/company-host-groups.js'
 import { parseHostid, parsePeriodo, parsePeriodoTimestamps } from './_helpers.js'
+import { getAllowedCompanyGroups } from './_company-scope.js'
 
 const router = Router()
+
+async function hostIsInSecondaryScope(
+  req: Request,
+  res: Response,
+  hostid: bigint,
+): Promise<boolean> {
+  if (req.session?.experience !== 'secondary') return true
+
+  const groups = await getAllowedCompanyGroups(req.session.allowedHostGroups ?? [])
+  const groupids = groups.map((group) => group.groupid)
+  if (groupids.length === 0 || !(await ZabbixService.hostBelongsToGroups(hostid, groupids))) {
+    res.status(404).json({ erro: 'Host não encontrado' })
+    return false
+  }
+  return true
+}
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/details
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/details',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -30,10 +48,11 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/basico',
-  validarToken,
+  requireExperienceOrLegacyJwt(['normal', 'secondary']),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
+      if (!(await hostIsInSecondaryScope(req, res, hostid))) return
       const basico = await ZabbixService.getHostBasico(hostid)
       if (!basico) return res.status(404).json({ erro: 'Host não encontrado' })
       res.json(basico)
@@ -48,10 +67,11 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/services',
-  validarToken,
+  requireExperienceOrLegacyJwt(['normal', 'secondary']),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
+      if (!(await hostIsInSecondaryScope(req, res, hostid))) return
       const services = await ZabbixService.getHostServices(hostid)
       res.json(services)
     } catch (e: unknown) {
@@ -65,7 +85,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/problemas',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -82,6 +102,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/by-name/:hostname/relatorio',
+  requireExperience('normal'),
   async (req: Request<{ hostname: string }>, res: Response) => {
     try {
       const { hostname } = req.params
@@ -113,9 +134,21 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 // GET /hosts/com-ip
 // ─────────────────────────────────────────────────────────────
-router.get('/hosts/com-ip', validarToken, async (_req: Request, res: Response) => {
+router.get('/hosts/com-ip', requireExperienceOrLegacyJwt(['normal', 'secondary']), async (req: Request, res: Response) => {
   try {
-    const dados = await ZabbixService.listarHostsComIp()
+    let dados
+    if (req.session?.experience === 'secondary') {
+      const allowedHostGroups = req.session.allowedHostGroups ?? []
+      if (allowedHostGroups.length === 0) return res.json([])
+
+      const grupos = await ZabbixService.listarGrupos()
+      const groupids = grupos
+        .filter((grupo) => isHostGroupAllowed(grupo.name, allowedHostGroups))
+        .map((grupo) => grupo.groupid)
+      dados = await ZabbixService.listarHostsComIpPorGrupos(groupids)
+    } else {
+      dados = await ZabbixService.listarHostsComIp()
+    }
     res.json(dados)
   } catch (e: unknown) {
     console.error('[hosts/com-ip]', e)
@@ -126,7 +159,7 @@ router.get('/hosts/com-ip', validarToken, async (_req: Request, res: Response) =
 // ─────────────────────────────────────────────────────────────
 // GET /hosts/com-ip-e-so
 // ─────────────────────────────────────────────────────────────
-router.get('/hosts/com-ip-e-so', validarToken, async (_req: Request, res: Response) => {
+router.get('/hosts/com-ip-e-so', requireExperienceOrLegacyJwt('normal'), async (_req: Request, res: Response) => {
   try {
     const dados = await ZabbixService.listarHostsComIpESo()
     res.json(dados)
@@ -139,25 +172,40 @@ router.get('/hosts/com-ip-e-so', validarToken, async (_req: Request, res: Respon
 // ─────────────────────────────────────────────────────────────
 // GET /hosts/status-ping-uptime
 // ─────────────────────────────────────────────────────────────
-router.get('/hosts/status-ping-uptime', validarToken, async (_req: Request, res: Response) => {
-  try {
-    const dados = await ZabbixService.getStatusPingUptimeAll()
-    res.json(dados)
-  } catch (e: unknown) {
-    console.error('[hosts/status-ping-uptime]', e)
-    res.status(500).json({ erro: (e as Error).message })
-  }
-})
+router.get(
+  '/hosts/status-ping-uptime',
+  requireExperienceOrLegacyJwt(['normal', 'secondary']),
+  async (req: Request, res: Response) => {
+    try {
+      if (req.session?.experience === 'secondary') {
+        const groups = await getAllowedCompanyGroups(req.session.allowedHostGroups ?? [])
+        const groupids = groups.map((group) => group.groupid)
+        if (groupids.length === 0) return res.json([])
+
+        const hostids = new Set(await ZabbixService.listarHostsIdsPorGrupos(groupids))
+        if (hostids.size === 0) return res.json([])
+        const dados = await ZabbixService.getStatusPingUptimeAll()
+        return res.json(dados.filter((host) => hostids.has(host.hostid)))
+      }
+      const dados = await ZabbixService.getStatusPingUptimeAll()
+      res.json(dados)
+    } catch (e: unknown) {
+      console.error('[hosts/status-ping-uptime]', e)
+      res.status(500).json({ erro: (e as Error).message })
+    }
+  },
+)
 
 // ─────────────────────────────────────────────────────────────
 // GET /host/:hostid/com-ip
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/com-ip',
-  validarToken,
+  requireExperienceOrLegacyJwt(['normal', 'secondary']),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
+      if (!(await hostIsInSecondaryScope(req, res, hostid))) return
       const dados = await ZabbixService.getHostComIp(hostid)
       if (!dados) return res.status(404).json({ erro: 'Host não encontrado' })
       res.json(dados)
@@ -172,10 +220,11 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/active-services',
-  validarToken,
+  requireExperienceOrLegacyJwt(['normal', 'secondary']),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
+      if (!(await hostIsInSecondaryScope(req, res, hostid))) return
       const dados = await ZabbixService.getActiveServices(hostid)
       res.json(dados)
     } catch (e: unknown) {
@@ -189,7 +238,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/relatorio-periodo',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -207,7 +256,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/serie',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -230,10 +279,11 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/metrics',
-  validarToken,
+  requireExperienceOrLegacyJwt(['normal', 'secondary']),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
+      if (!(await hostIsInSecondaryScope(req, res, hostid))) return
       const payload = await ZabbixService.getHostMetricsPayload(hostid)
       res.json(payload)
     } catch (e: unknown) {

@@ -3,7 +3,7 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { ZabbixService } from '../services/zabbix.service.js'
 import { RelatorioService } from '../services/relatorio.service.js'
-import { validarToken } from '../middlewares/auth.middleware.js'
+import { requireExperienceOrLegacyJwt } from '../middlewares/experience.middleware.js'
 import { parseHostid, parsePeriodo } from './_helpers.js'
 import { isoParaTimestamp } from '../utils/helpers.js'
 
@@ -15,7 +15,7 @@ const router = Router()
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/:hostid/relatorio',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -34,7 +34,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.post(
   '/host/:hostid/relatorio',
-  validarToken,
+  requireExperienceOrLegacyJwt('normal'),
   async (req: Request<{ hostid: string }>, res: Response) => {
     try {
       const hostid = parseHostid(req.params.hostid)
@@ -56,7 +56,7 @@ router.post(
 // GET /relatorio/disponibilidade?hostids=1,2,3&inicio=...&fim=...
 // Relatório de disponibilidade multi-host (agrupado por categoria)
 // ─────────────────────────────────────────────────────────────
-router.get('/relatorio/disponibilidade', validarToken, async (req: Request, res: Response) => {
+router.get('/relatorio/disponibilidade', requireExperienceOrLegacyJwt('normal'), async (req: Request, res: Response) => {
   try {
     const { hostids: hostidsParam, inicio, fim } = req.query as Record<string, string | undefined>
 

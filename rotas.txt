@@ -22,6 +22,8 @@ GET    http://localhost:3000/auth/callback
 GET    http://localhost:3000/auth/silent
 GET    http://localhost:3000/auth/me
 GET    http://localhost:3000/auth/logout
+Contrato: o callback consulta companyName no Graph e sempre redireciona para /dashboard. /auth/me retorna user, groups, clientIp, source e experience; o frontend usa experience para renderizar a página.
+Config obrigatoria: config/authorized-companies.json; formato { "companies": [ { "companyname": "datacore" } ] }. Arquivo ausente ou invalido impede o startup.
 
 HOSTS
 GET    http://localhost:3000/host/:hostid/details
@@ -67,3 +69,10 @@ GET    http://localhost:3000/incidentes/ativos
 GET    http://localhost:3000/incidentes/hosts-totais
 GET    http://localhost:3000/incidentes/problemas-24h
 GET    http://localhost:3000/incidentes/dashboard
+
+POLITICA DE EXPERIENCIA
+NORMAL (sessao Entra): rotas de hosts, grupos, incidentes, relatorios, SLA e servicos listadas acima. Sessao secondary recebe 403.
+GET /host/by-name/:hostname/relatorio exige sessao Entra normal.
+JWT legado: as rotas de dados autenticadas por JWT mantem o comportamento legado quando nao ha sessao Entra; isso e um bypass pendente da politica.
+COMPARTILHADAS: /auth/login, /auth/callback, /auth/silent, /auth/me, /auth/logout, /, /health e /docs*. A rota admin/company-zabbix-test exige conta Entra apenas para o endpoint de resultado.
+FORA DA POLITICA: endpoints JWT/senha (/login, /me, /users, /auth/token, /ativar*), Guacamole (/guacamole/*), /admin/cache/clear em desenvolvimento e recursos estaticos/admin. Endpoints de dados especificos da experiencia secundaria ainda nao existem.

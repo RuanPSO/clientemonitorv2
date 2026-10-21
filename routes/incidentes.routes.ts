@@ -2,6 +2,7 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { IncidentesService } from '../services/incidentes.service.js'
+import { requireExperienceOrLegacyJwt } from '../middlewares/experience.middleware.js'
 
 const router = Router()
 
@@ -9,7 +10,7 @@ const router = Router()
 // GET /incidentes/ativos
 // Lista os incidentes ativos do dia
 // ─────────────────────────────────────────────────────────────
-router.get('/incidentes/ativos', async (_req: Request, res: Response) => {
+router.get('/incidentes/ativos', requireExperienceOrLegacyJwt('normal'), async (_req: Request, res: Response) => {
   try {
     const dados = await IncidentesService.getIncidentesAtivosDoDia()
     res.json(dados)
@@ -23,7 +24,7 @@ router.get('/incidentes/ativos', async (_req: Request, res: Response) => {
 // GET /incidentes/hosts-totais
 // Retorna contagem de hosts por status
 // ─────────────────────────────────────────────────────────────
-router.get('/incidentes/hosts-totais', async (_req: Request, res: Response) => {
+router.get('/incidentes/hosts-totais', requireExperienceOrLegacyJwt('normal'), async (_req: Request, res: Response) => {
   try {
     const dados = await IncidentesService.getHostsTotais()
     res.json(dados)
@@ -37,7 +38,7 @@ router.get('/incidentes/hosts-totais', async (_req: Request, res: Response) => {
 // GET /incidentes/problemas-24h
 // Top 10 problemas nas últimas 24h
 // ─────────────────────────────────────────────────────────────
-router.get('/incidentes/problemas-24h', async (_req: Request, res: Response) => {
+router.get('/incidentes/problemas-24h', requireExperienceOrLegacyJwt('normal'), async (_req: Request, res: Response) => {
   try {
     const dados = await IncidentesService.getProblemas24h()
     res.json(dados)
@@ -51,7 +52,7 @@ router.get('/incidentes/problemas-24h', async (_req: Request, res: Response) => 
 // GET /incidentes/dashboard
 // Endpoint agregado — 1 chamada retorna tudo que o dashboard precisa
 // ─────────────────────────────────────────────────────────────
-router.get('/incidentes/dashboard', async (_req: Request, res: Response) => {
+router.get('/incidentes/dashboard', requireExperienceOrLegacyJwt('normal'), async (_req: Request, res: Response) => {
   try {
     const dados = await IncidentesService.getDashboard()
     res.json(dados)

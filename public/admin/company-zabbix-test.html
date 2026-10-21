@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="stylesheet" href="/admin/company-zabbix-test.css">
+    <title>Diagnóstico de mapeamento empresa-Zabbix</title>
+  </head>
+  <body>
+    <main>
+      <h1>Diagnóstico de mapeamento empresa-Zabbix</h1>
+      <p>Esta ferramenta é somente diagnóstica. O mapeamento exibido não concede permissões nem autoriza consultas a hosts.</p>
+
+      <section id="loading" aria-live="polite">Consultando a sessão autenticada...</section>
+      <section id="login" hidden>
+        <h2>Login necessário</h2>
+        <p>Não há uma sessão Microsoft autenticada neste navegador.</p>
+        <a href="/auth/login">Entrar com a conta Microsoft</a>
+      </section>
+      <section id="error" role="alert" hidden></section>
+
+      <div id="authenticated" hidden>
+        <section>
+          <h2>Usuário retornado por /auth/me</h2>
+          <dl>
+            <dt>Nome</dt><dd id="display-name"></dd>
+            <dt>E-mail</dt><dd id="email"></dd>
+            <dt>Empresa</dt><dd id="company-name"></dd>
+            <dt>Cargo</dt><dd id="job-title"></dd>
+          </dl>
+        </section>
+        <section>
+          <h2>Mapeamento da sessão</h2>
+          <p id="actual-result"></p>
+          <h3>JSON resultante</h3>
+          <pre id="actual-json"></pre>
+        </section>
+        <section>
+          <h2>Simular outra empresa</h2>
+          <p>A simulação não altera a sessão, a identidade exibida ou as permissões reais.</p>
+          <form id="simulation-form">
+            <label for="simulate-company">Nome da empresa para diagnóstico</label>
+            <input id="simulate-company" name="simulate-company" autocomplete="off">
+            <button type="submit">Simular</button>
+          </form>
+          <p id="simulation-result" aria-live="polite"></p>
+          <h3>JSON da simulação</h3>
+          <pre id="simulation-json"></pre>
+        </section>
+      </div>
+    </main>
+    <script src="/admin/company-zabbix-test.js" defer></script>
+  </body>
+</html>

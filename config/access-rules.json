@@ -1,0 +1,15 @@
+{
+  "liberados": [
+    {
+      "companyName": "Datacore",
+      "jobTitle": "*",
+      "acesso": "total"
+    },
+    {
+      "companyName": "*",
+      "jobTitle": "*",
+      "acesso": "hosts"
+    }
+  ],
+  "semPermissao": []
+}

@@ -107,6 +107,94 @@ export class HostRepository {
     return map
   }
 
+  static async getHostsDeGrupos(groupids: string[]): Promise<Map<string, HostResumo[]>> {
+    if (groupids.length === 0) return new Map()
+    if (!groupids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de hosts')
+    }
+
+    const ids = [...new Set(groupids)].map((groupid) => BigInt(groupid))
+    const placeholders = ids.map((_, index) => `$${index + 1}`).join(', ')
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{ groupid: bigint; hostid: bigint; name: string }>
+    >(
+      `SELECT hg.groupid, h.hostid, h.name
+       FROM hosts_groups hg
+       JOIN hosts h ON h.hostid = hg.hostid
+       WHERE hg.groupid IN (${placeholders})
+         AND h.status = 0
+       ORDER BY hg.groupid, h.name`,
+      ...ids,
+    )
+
+    const map = new Map<string, HostResumo[]>()
+    for (const row of rows) {
+      const groupid = row.groupid.toString()
+      const hosts = map.get(groupid) ?? []
+      hosts.push({ hostid: row.hostid.toString(), hostname: row.name })
+      map.set(groupid, hosts)
+    }
+    return map
+  }
+
+  static async hostBelongsToGroups(hostid: bigint | number, groupids: string[]): Promise<boolean> {
+    if (groupids.length === 0) return false
+    if (!groupids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de host')
+    }
+
+    const ids = [...new Set(groupids)].map((groupid) => BigInt(groupid))
+    const placeholders = ids.map((_, index) => `$${index + 2}`).join(', ')
+    const rows = await prisma.$queryRawUnsafe<Array<{ ok: number }>>(
+      `SELECT 1 AS ok
+       FROM hosts_groups
+       WHERE hostid = $1
+         AND groupid IN (${placeholders})
+       LIMIT 1`,
+      typeof hostid === 'bigint' ? hostid : BigInt(hostid),
+      ...ids,
+    )
+    return rows.length > 0
+  }
+
+  static async getHostIdsDeGrupos(groupids: string[]): Promise<string[]> {
+    if (groupids.length === 0) return []
+    if (!groupids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de hosts')
+    }
+
+    const ids = [...new Set(groupids)].map((groupid) => BigInt(groupid))
+    const placeholders = ids.map((_, index) => `$${index + 1}`).join(', ')
+    const rows = await prisma.$queryRawUnsafe<Array<{ hostid: bigint }>>(
+      `SELECT DISTINCT hostid
+       FROM hosts_groups
+       WHERE groupid IN (${placeholders})`,
+      ...ids,
+    )
+    return rows.map((row) => row.hostid.toString())
+  }
+
+  static async hostNameBelongsToGroups(hostname: string, groupids: string[]): Promise<boolean> {
+    if (groupids.length === 0) return false
+    if (!groupids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de host')
+    }
+
+    const ids = [...new Set(groupids)].map((groupid) => BigInt(groupid))
+    const placeholders = ids.map((_, index) => `$${index + 2}`).join(', ')
+    const rows = await prisma.$queryRawUnsafe<Array<{ ok: number }>>(
+      `SELECT 1 AS ok
+       FROM hosts h
+       JOIN hosts_groups hg ON hg.hostid = h.hostid
+       WHERE (h.name = $1 OR h.host = $1)
+         AND hg.groupid IN (${placeholders})
+       LIMIT 1`,
+      hostname,
+      ...ids,
+    )
+    return rows.length > 0
+  }
+
   // ==========================================================
   // DISPATCHER (opção B): ID ou NOME na mesma rota
   // ==========================================================
@@ -289,6 +377,38 @@ export class HostRepository {
       hostid: r.hostid.toString(),
       host: r.host,
       ip: r.ip ?? null,
+    }))
+  }
+
+  static async listarHostsComIpPorGrupos(groupids: string[]): Promise<
+    Array<{ hostid: string; host: string; ip: string | null }>
+  > {
+    if (groupids.length === 0) return []
+    if (!groupids.every((groupid) => /^\d+$/.test(groupid))) {
+      throw new Error('IDs de grupos inválidos para consulta de hosts')
+    }
+
+    const ids = [...new Set(groupids)].map((groupid) => BigInt(groupid))
+    const placeholders = ids.map((_, index) => `$${index + 1}`).join(', ')
+    const rows = await prisma.$queryRawUnsafe<
+      Array<{ hostid: bigint; host: string; ip: string | null }>
+    >(
+      `SELECT DISTINCT h.hostid, h.host, i.ip
+       FROM hosts h
+       JOIN hosts_groups hg ON hg.hostid = h.hostid
+       LEFT JOIN interface i
+         ON i.hostid = h.hostid
+        AND i.main = 1
+       WHERE hg.groupid IN (${placeholders})
+         AND h.status = 0
+       ORDER BY h.host`,
+      ...ids,
+    )
+
+    return rows.map((row) => ({
+      hostid: row.hostid.toString(),
+      host: row.host,
+      ip: row.ip ?? null,
     }))
   }
 
