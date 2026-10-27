@@ -5,9 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node --import tsx index.ts",
+    "start:guacamole": "node server.js",
     "dev": "tsx watch index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts tests/*.test.mjs"
   },
   "keywords": [],
   "author": "",
@@ -40,10 +41,12 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-session": "^1.19.0",
+    "guacamole-lite": "^1.2.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "lru-cache": "^11.5.2",
     "morgan": "^1.12.1",
+    "multer": "^2.5.0",
     "nodemailer": "^10.0.10",
     "pg": "^8.23.0"
   }

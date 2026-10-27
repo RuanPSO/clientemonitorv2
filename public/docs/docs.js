@@ -23,6 +23,7 @@
   const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   const displayPath = (path) => path.replace(/\{([^}]+)\}/g, ':$1')
   const authLabel = (operation) => {
+    if (operation.security?.some((entry) => 'staticBearerAuth' in entry)) return 'Bearer estático'
     if (operation.security?.some((entry) => 'bearerAuth' in entry)) return 'JWT Bearer'
     if (operation.security?.some((entry) => 'microsoftSession' in entry)) return 'Sessão Microsoft'
     return 'Sem autenticação na rota'
@@ -163,8 +164,12 @@
 
   function requestSamples(operation) {
     const path = samplePath(operation)
-    const url = `${window.location.origin}${path}`
+    const baseUrl = operation.servers?.[0]?.url || window.location.origin
+    const url = `${baseUrl}${path}`
     const headers = []
+    if (operation.security?.some((entry) => 'staticBearerAuth' in entry)) {
+      headers.push(`-H "Authorization: Bearer <API_BEARER_TOKEN>"`)
+    }
     if (operation.security?.some((entry) => 'bearerAuth' in entry)) {
       headers.push(['-H "Authorization:', 'Bearer YOUR_JWT_TOKEN"'].join(' '))
     }
@@ -178,6 +183,9 @@
     ].join(' \\\n  ')
     const fetchOptions = [`  method: '${operation.method}'`]
     const fetchHeaders = []
+    if (operation.security?.some((entry) => 'staticBearerAuth' in entry)) {
+      fetchHeaders.push("    Authorization: ['Bearer', apiBearerToken].join(' ')")
+    }
     if (operation.security?.some((entry) => 'bearerAuth' in entry)) {
       fetchHeaders.push("    Authorization: ['Bearer', apiToken].join(' ')")
     }
@@ -188,8 +196,10 @@
     }
     if (body) fetchOptions.push(`  body: JSON.stringify(${body})`)
     const javascript = [
-      "const baseUrl = window.location.origin",
-      "const apiToken = 'YOUR_JWT_TOKEN' // necessário somente para rotas JWT",
+      `const baseUrl = '${baseUrl}'`,
+      ...(operation.security?.some((entry) => 'staticBearerAuth' in entry)
+        ? ["const apiBearerToken = 'YOUR_API_BEARER_TOKEN'"]
+        : ["const apiToken = 'YOUR_JWT_TOKEN' // necessário somente para rotas JWT"]),
       `const response = await fetch(\`\${baseUrl}${path.replace(/<([^>]+)>/g, (_, name) => `\${${name}}`)}\`, {`,
       fetchOptions.join(',\n'),
       '})',

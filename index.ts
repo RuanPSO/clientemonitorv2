@@ -21,10 +21,10 @@ import grupoRoutes from './routes/grupo.routes.js'
 import relatorioRoutes from './routes/relatorio.routes.js'
 import slaRoutes from './routes/sla.routes.js'
 import servicesRoutes from './routes/services.routes.js'
-import guacamoleRoutes from './routes/guacamole.routes.js'
 import incidentesRoutes from './routes/incidentes.routes.js'
 import docsRoutes from './routes/docs.routes.js'
 import companyZabbixTestRoutes from './routes/company-zabbix-test.routes.js'
+import conectadoRoutes from './routes/conectado.routes.js'
 import { validateMicrosoftAuthEnv } from './config/env.js'
 import { logger } from './utils/logger.js'
 
@@ -81,12 +81,12 @@ app.get('/', (_req, res) => {
 app.use(authRoutes)
 app.use('/auth', entraAuthRoutes)
 app.use('/admin', companyZabbixTestRoutes)
+app.use(conectadoRoutes)
 app.use(hostRoutes)
 app.use(grupoRoutes)
 app.use(relatorioRoutes)
 app.use(slaRoutes)
 app.use(servicesRoutes)
-app.use(guacamoleRoutes)
 app.use(incidentesRoutes)
 
 app.get('/health', (_req, res) => {

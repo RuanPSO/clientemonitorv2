@@ -35,7 +35,7 @@ O fluxo Microsoft é executado pelo backend Express com MSAL Node e sessão HTTP
 - Crie um client secret para uso pelo backend. Guarde o valor fora do código e não o envie em logs, commits ou mensagens.
 - Em **API permissions**, adicione as permissões delegadas Microsoft Graph `User.Read`, `GroupMember.Read.All` e `AuditLog.Read.All`. Dependendo das políticas do tenant, `GroupMember.Read.All` e `AuditLog.Read.All` podem exigir consentimento de administrador.
 
-Copie `.env.example` para `.env` somente se ainda não houver um `.env`, e preencha localmente. Esta API já possui variáveis próprias para bancos, JWT e Guacamole; preserve essas configurações locais ao adicionar os campos Microsoft (o `.env.example` documenta o fluxo novo, não substitui os valores existentes):
+Copie `.env.example` para `.env` somente se ainda não houver um `.env`, e preencha localmente. Preserve as configurações locais existentes ao adicionar variáveis novas.
 
 | Variável | Uso |
 | --- | --- |
@@ -50,8 +50,18 @@ Copie `.env.example` para `.env` somente se ainda não houver um `.env`, e preen
 | `SESSION_COOKIE_SAME_SITE` | `lax` por padrão; use `none` em produção somente para frontend/backend realmente cross-site (exige HTTPS) |
 | `SESSION_COOKIE_DOMAIN` | Opcional; deixe vazio para um cookie host-only, ou defina o domínio compartilhado entre subdomínios |
 | `DEBUG` | Use `true` somente em desenvolvimento para habilitar logs de depuração sem tokens |
+| `GUACAMOLE_BASE_URL` | URL base do Portal RDP (padrão `http://10.86.26.18:8410/`) |
+| `GUACAMOLE_TIMEOUT_MS` | Timeout em milissegundos da verificação remota (padrão `10000`) |
 
 O carregamento de ambiente usa `dotenv` com `override: true`. A inicialização falha com a lista de variáveis ausentes (sem imprimir valores) ou se `SESSION_SECRET` tiver menos de 32 caracteres. Em produção, `FRONTEND_URL` deve ser definido explicitamente; em desenvolvimento, o padrão permitido é `http://localhost:5173`. Em desenvolvimento, `AZURE_REDIRECT_URI` deve corresponder à porta do backend (padrão `http://localhost:3000/auth/callback`); `http://localhost:5173/auth/callback` é a porta SPA/frontend e não funciona como callback do backend. No startup são registrados o client ID, tenant ID, tamanho do client secret e redirect URI; o segredo em si nunca é registrado.
+
+### Verificar conectividade do Portal RDP
+
+`GET /api/conectado` consulta diretamente a URL configurada em `GUACAMOLE_BASE_URL` (padrão `http://10.86.26.18:8410/`) com `GET`, sem autenticação. Responde `{"status":"conectado"}` quando o Portal RDP retorna HTTP 200 com conteúdo HTML. Não inicia uma sessão RDP. Redirecionamentos não são seguidos.
+
+```bash
+curl http://localhost:3000/api/conectado
+```
 
 ### Instalação e execução
 
@@ -98,7 +108,7 @@ A comparação é exata após `trim().toLowerCase()`. Match resulta em `experien
 
 As rotas de dados de hosts, grupos, incidentes, relatórios, SLA e serviços verificam a experiência normal quando a requisição tem sessão Entra. Para manter compatibilidade, uma chamada autenticada apenas por JWT legado continua funcionando sem a verificação de experiência; isso é um bypass pendente que deve ser resolvido antes de considerar toda a API protegida por página. A rota `GET /host/by-name/:hostname/relatorio` exige diretamente sessão Entra normal. Ainda não existem endpoints de dados específicos da experiência secundária neste backend.
 
-Login/callback/logout/`/auth/me`, health check e documentação são compartilhados. As rotas de Guacamole permanecem fora da política de experiência e algumas continuam sem autenticação; não devem ser consideradas protegidas pela separação de páginas. A autenticação JWT/senha não foi alterada nesta etapa.
+Login/callback/logout/`/auth/me`, health check e documentação são compartilhados. O gateway Guacamole Lite é um processo independente na porta 8190; suas rotas exigem um bearer token estático próprio, sem depender da sessão web desta API.
 
 ### Diagnóstico de mapeamento empresa-Zabbix
 
@@ -128,11 +138,21 @@ Testes unitários não precisam de login, tokens reais nem chamadas externas. O 
 
 Com o backend em execução, acesse `/docs` na mesma origem da API. A página é servida pelo Express e carrega a especificação OpenAPI 3.0.3 em `/docs/openapi.json`. O catálogo tipado fica em `routes/docs.openapi.ts`; a versão vem de `package.json`, a base é a origem que serve a página e o ambiente vem de `NODE_ENV`. Atualize o catálogo somente após confirmar o router, o middleware de autenticação e os parâmetros/corpos no código. As respostas sem schema declarado são indicadas como não especificadas, em vez de inventar contratos.
 
-A página e a especificação são públicas, assim como a rota raiz existente. Isso não remove nem substitui a autenticação das operações protegidas: rotas JWT continuam exigindo um header `Authorization` com esquema Bearer e o perfil Microsoft exige o cookie de sessão existente. `POST /auth/token`, `POST /admin/cache/clear`, `GET /guacamole/debug/:connectionId`, `POST /guacamole/fix-domain/:connectionId` e `POST /guacamole/fix-target/:connectionId` foram intencionalmente omitidas do catálogo por emitirem tokens sem credenciais, serem administrativas ou exporem/alterarem configuração. As rotas Guacamole documentadas não aplicam middleware de autenticação no código atual.
+A página e a especificação são públicas. As rotas administrativas e de depuração da API principal ficam fora do catálogo. As rotas REST legadas de Guacamole foram removidas; o gateway independente exige seu bearer estático e está documentado acima.
 
-Os arquivos da interface ficam em `public/docs/`, sem biblioteca adicional ou servidor separado. Não foi necessário alterar Prisma, migrations, adapters, rotas de negócio ou o lockfile.
+Os arquivos da interface ficam em `public/docs/`, sem biblioteca adicional ou servidor separado. A instalação do gateway Guacamole Lite adiciona `guacamole-lite` e `multer` ao lockfile sem alterar Prisma, migrations, adapters ou as demais rotas de negócio.
 
 - Atualização - parametro de desenvolvimento ativos para adicionar novas funções e novas rotas para aplicações
 
 - Endpoints para rotas publicas e privadas validadas e para uso
+
+### Gateway RDP com Guacamole Lite
+
+O gateway remoto é iniciado separadamente por `npm run start:guacamole` e usa `GUAC_PORT` (8190 por padrão). Ele emite tokens compatíveis com `guacamole-lite` em `POST /api/guacamole/token`, conecta diretamente ao `guacd` (`GUACD_HOST:GUACD_PORT`) e não chama a API REST do Apache Guacamole nem cria usuários por e-mail.
+
+O endpoint recebe somente `{ username, password, port }`; o backend fixa o destino e o domínio RDP em `ts.datacore.com.br`. Configure `API_BEARER_TOKEN` com pelo menos 32 bytes aleatórios e `GUAC_KEY` com exatamente 32 bytes UTF-8. Não coloque esses segredos no controle de versão. Em produção, configure `GUAC_WS_PUBLIC_URL` como `wss://...`, `CORS_ORIGINS` para as origens exatas autorizadas e exponha o serviço somente por HTTPS/WSS. Um bearer estático incluído em código JavaScript público pode ser extraído; use essa chamada somente através de um backend intermediário confiável ou proteja a borda do gateway.
+
+As rotas autenticadas são `POST /api/guacamole/token`, `POST /api/files/upload` (multipart, campo `file`), `GET /api/files` e `GET /api/files/download/:filename`. O token de conexão é de uso único e expira em 60 segundos. O diretório padrão de transferência é `/var/lib/guacamole/drives`; quando `guacd` estiver em outro container/host, compartilhe esse diretório por volume com o `guacd`. Para ambiente local, use `GUAC_DRIVE_PATH` apontando para um diretório gravável.
+
+O WebSocket compartilha a porta Express 8190. O gateway valida token e origem antes de aceitar o upgrade e registra eventos de sessão sem gravar senha ou token nos logs. Consulte [GUACAMOLE_FLUXO.md](./GUACAMOLE_FLUXO.md) para o contrato e o fluxo completo.
 > Sugestão principal: portal-interno-backend

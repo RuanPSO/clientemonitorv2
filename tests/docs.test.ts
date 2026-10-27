@@ -37,7 +37,12 @@ test('OpenAPI deriva versão, caminhos e operações do catálogo confirmado', (
   for (const [path, methods] of Object.entries(openApiDocument.paths)) {
     for (const operation of Object.values(methods)) {
       assert.ok(operation?.tags.length)
-      assert.ok(operation?.responses['200'] || operation?.responses['201'] || operation?.responses['302'])
+      assert.ok(
+        operation?.responses['200'] ||
+        operation?.responses['201'] ||
+        operation?.responses['302'] ||
+        operation?.responses['501'],
+      )
       for (const name of path.matchAll(/\{([^}]+)\}/g)) {
         assert.ok(operation?.parameters?.some(
           (parameter) => parameter.in === 'path' && parameter.name === name[1] && parameter.required,
@@ -70,6 +75,17 @@ test('OpenAPI deriva versão, caminhos e operações do catálogo confirmado', (
     )
   }
   assert.equal(openApiDocument.paths['/auth/me']?.get?.security?.[0]?.microsoftSession?.length, 0)
+  const guacamoleTokenOperation = openApiDocument.paths['/api/guacamole/token']?.post
+  assert.deepEqual(guacamoleTokenOperation?.security, [{ staticBearerAuth: [] }])
+  assert.deepEqual(
+    guacamoleTokenOperation?.requestBody?.content['application/json'].schema.required,
+    ['username', 'password', 'port'],
+  )
+  assert.equal(guacamoleTokenOperation?.servers?.[0]?.url, 'http://localhost:8190')
+  assert.deepEqual(
+    openApiDocument.paths['/api/conectado']?.get?.responses['200']?.content?.['application/json'].example,
+    { status: 'conectado' },
+  )
 
   const documentedPaths = Object.keys(openApiDocument.paths)
   assert.ok(!documentedPaths.includes('/auth/token'))

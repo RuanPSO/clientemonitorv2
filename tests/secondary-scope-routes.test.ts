@@ -8,8 +8,6 @@ import type { AccountInfo } from '@azure/msal-node'
 import jwt from 'jsonwebtoken'
 import groupRoutes from '../routes/grupo.routes.js'
 import hostRoutes from '../routes/host.routes.js'
-import guacamoleRoutes from '../routes/guacamole.routes.js'
-import { GuacamoleService } from '../services/guacamole.service.js'
 import { ZabbixService } from '../services/zabbix.service.js'
 import { resolveCompanyHostGroups } from '../config/company-host-groups.js'
 import type { HostsFullResponse } from '../services/zabbix.service.js'
@@ -88,19 +86,16 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
     listarHostsIdsPorGrupos: ZabbixService.listarHostsIdsPorGrupos,
     getStatusPingUptimeAll: ZabbixService.getStatusPingUptimeAll,
     hostBelongsToGroups: ZabbixService.hostBelongsToGroups,
-    hostNameBelongsToGroups: ZabbixService.hostNameBelongsToGroups,
     getHostMetricsPayload: ZabbixService.getHostMetricsPayload,
     getHostBasico: ZabbixService.getHostBasico,
     getHostServices: ZabbixService.getHostServices,
     getActiveServices: ZabbixService.getActiveServices,
     getHostComIp: ZabbixService.getHostComIp,
-    conectarOuCriar: GuacamoleService.conectarOuCriar,
   }
   const groupHostCalls: string[] = []
   const scopedGroupCalls: string[][] = []
   const scopedHostIdCalls: string[][] = []
   const hostMembershipCalls: string[] = []
-  const hostNameMembershipCalls: string[] = []
   const detailCalls: string[] = []
   let normalAggregateCalls = 0
   let unfilteredStatusCalls = 0
@@ -165,10 +160,6 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
     hostMembershipCalls.push(hostid.toString())
     return ['101', '102'].includes(hostid.toString()) && groupids.includes('14')
   }
-  ZabbixService.hostNameBelongsToGroups = async (hostname, groupids) => {
-    hostNameMembershipCalls.push(hostname)
-    return hostname === 'server-bh' && groupids.includes('14')
-  }
   ZabbixService.getHostMetricsPayload = async (hostid) => {
     detailCalls.push(`metrics:${hostid}`)
     return {
@@ -209,16 +200,6 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
     detailCalls.push(`com-ip:${hostid}`)
     return { hostid: hostid.toString(), nome: 'server-bh', ip: '192.0.2.10', porta_customizada: null }
   }
-  GuacamoleService.conectarOuCriar = async () => {
-    guacamoleCalls += 1
-    return {
-      url: 'http://localhost/connection',
-      hostname: 'server-bh',
-      porta: '3389',
-      connectionId: 'test-connection',
-      username: 'user',
-    }
-  }
 
   const app = express()
   app.use(express.json())
@@ -243,7 +224,6 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
   })
   app.use(groupRoutes)
   app.use(hostRoutes)
-  app.use(guacamoleRoutes)
 
   const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
@@ -307,21 +287,6 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
     assert.ok(hostMembershipCalls.includes('101'))
     assert.ok(hostMembershipCalls.includes('202'))
 
-    const allowedConnection = await fetch(`${baseUrl}/guacamole/connect-full`, {
-      method: 'POST',
-      headers: { cookie: secondaryCookie, authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ hostname: 'server-bh', porta: 3389, email: 'user@example.com' }),
-    })
-    assert.equal(allowedConnection.status, 200)
-    const deniedConnection = await fetch(`${baseUrl}/guacamole/connect-full`, {
-      method: 'POST',
-      headers: { cookie: secondaryCookie, authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ hostname: 'outside', porta: 3389, email: 'user@example.com' }),
-    })
-    assert.equal(deniedConnection.status, 404)
-    assert.equal(guacamoleCalls, 1)
-    assert.deepEqual(hostNameMembershipCalls, ['server-bh', 'outside'])
-
     const emptyCookie = await createSession('secondary', 'Outra Empresa')
     assert.deepEqual(await (await get('/grupos/com-hosts', emptyCookie)).json(), [])
     assert.deepEqual(await (await get('/hosts/status-ping-uptime', emptyCookie)).json(), [])
@@ -376,14 +341,6 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
         },
       }],
     })
-    const normalConnection = await fetch(`${baseUrl}/guacamole/connect-full`, {
-      method: 'POST',
-      headers: { cookie: normalCookie, authorization, 'content-type': 'application/json' },
-      body: JSON.stringify({ hostname: 'outside', porta: 3389, email: 'user@example.com' }),
-    })
-    assert.equal(normalConnection.status, 200)
-    assert.equal(guacamoleCalls, 2)
-    assert.deepEqual(hostNameMembershipCalls, ['server-bh', 'outside'])
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve())
@@ -396,12 +353,10 @@ test('secondary recebe somente dados de grupos e hosts autorizados; normal mant√
     ZabbixService.listarHostsIdsPorGrupos = originals.listarHostsIdsPorGrupos
     ZabbixService.getStatusPingUptimeAll = originals.getStatusPingUptimeAll
     ZabbixService.hostBelongsToGroups = originals.hostBelongsToGroups
-    ZabbixService.hostNameBelongsToGroups = originals.hostNameBelongsToGroups
     ZabbixService.getHostMetricsPayload = originals.getHostMetricsPayload
     ZabbixService.getHostBasico = originals.getHostBasico
     ZabbixService.getHostServices = originals.getHostServices
     ZabbixService.getActiveServices = originals.getActiveServices
     ZabbixService.getHostComIp = originals.getHostComIp
-    GuacamoleService.conectarOuCriar = originals.conectarOuCriar
   }
 })

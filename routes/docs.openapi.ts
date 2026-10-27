@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 type HttpMethod = 'get' | 'post'
-type AuthRequirement = 'public' | 'jwt' | 'microsoft-session'
+type AuthRequirement = 'public' | 'jwt' | 'static-bearer' | 'microsoft-session'
 type ValueType = 'string' | 'integer' | 'number' | 'boolean'
 
 interface ApiField {
@@ -25,6 +25,7 @@ interface ApiOperation {
   successStatus?: string
   successDescription?: string
   responseExample?: unknown
+  serverUrl?: string
 }
 
 interface OpenApiParameter {
@@ -41,6 +42,7 @@ interface OpenApiOperation {
   summary: string
   description: string
   operationId: string
+  servers?: Array<{ url: string; description?: string }>
   parameters?: OpenApiParameter[]
   requestBody?: {
     required: boolean
@@ -75,6 +77,7 @@ interface OpenApiDocument {
   components: {
     securitySchemes: {
       bearerAuth: { type: 'http'; scheme: 'bearer'; bearerFormat: 'JWT' }
+      staticBearerAuth: { type: 'http'; scheme: 'bearer'; description: string }
       microsoftSession: {
         type: 'apiKey'
         in: 'cookie'
@@ -104,6 +107,19 @@ export const apiVersion = readApplicationVersion()
 
 export const apiOperations: ApiOperation[] = [
   {
+    operationId: 'checkGuacamoleConnectivity',
+    method: 'get',
+    path: '/api/conectado',
+    category: 'Guacamole Lite',
+    summary: 'Verificar comunicação com o Portal RDP',
+    description: 'Consulta diretamente a URL configurada em GUACAMOLE_BASE_URL (padrão http://10.86.26.18:8410/) sem autenticação. Retorna sucesso quando o Portal RDP responde HTTP 200 com HTML. Não inicia uma sessão RDP.',
+    auth: 'public',
+    successDescription: 'O Portal RDP respondeu HTTP 200 com status conectado.',
+    responseExample: {
+      status: 'conectado',
+    },
+  },
+  {
     operationId: 'getServiceOverview',
     method: 'get',
     path: '/',
@@ -126,6 +142,25 @@ export const apiOperations: ApiOperation[] = [
     summary: 'Verificar saúde da API',
     description: 'Retorna o estado do serviço, informações do cache, tempo ativo e horário da resposta.',
     auth: 'public',
+  },
+  {
+    operationId: 'createGuacamoleLiteToken',
+    method: 'post',
+    path: '/api/guacamole/token',
+    category: 'Guacamole Lite',
+    summary: 'Gerar token de conexão RDP',
+    description: 'Emite um token AES-256-CBC para abrir uma sessão no Guacamole Lite. O host e o domínio são preenchidos pelo backend como ts.datacore.com.br; o cliente informa somente usuário, senha e porta. Requer o token estático configurado em API_BEARER_TOKEN.',
+    auth: 'static-bearer',
+    serverUrl: `http://localhost:${process.env.GUAC_PORT ?? '8190'}`,
+    body: [
+      { name: 'username', type: 'string', required: true, description: 'Usuário RDP, sem domínio.', example: 'usuario' },
+      { name: 'password', type: 'string', required: true, description: 'Senha do usuário RDP.', example: '<SENHA>' },
+      { name: 'port', type: 'integer', required: true, description: 'Porta RDP customizada recebida do card do host.', example: 3389 },
+    ],
+    responseExample: {
+      token: '<TOKEN_AES_256_CBC>',
+      websocketUrl: 'ws://localhost:8190/?token=<TOKEN_AES_256_CBC>',
+    },
   },
   {
     operationId: 'login',
@@ -499,41 +534,6 @@ export const apiOperations: ApiOperation[] = [
     ],
   },
   {
-    operationId: 'listGuacamoleHosts',
-    method: 'get',
-    path: '/guacamole/hosts',
-    category: 'Guacamole',
-    summary: 'Listar conexões Guacamole',
-    description: 'Lista as conexões configuradas no Guacamole. A rota atual não aplica middleware de autenticação.',
-    auth: 'public',
-  },
-  {
-    operationId: 'createGuacamoleConnection',
-    method: 'post',
-    path: '/guacamole/connect',
-    category: 'Guacamole',
-    summary: 'Gerar URL de conexão Guacamole',
-    description: 'Gera a URL de conexão para um identificador existente. A rota atual não aplica middleware de autenticação.',
-    auth: 'public',
-    body: [
-      { name: 'connectionId', type: 'string', required: true, description: 'Identificador da conexão existente.', example: '<CONNECTION_ID>' },
-    ],
-  },
-  {
-    operationId: 'createOrConnectGuacamoleHost',
-    method: 'post',
-    path: '/guacamole/connect-full',
-    category: 'Guacamole',
-    summary: 'Criar ou conectar host no Guacamole',
-    description: 'Executa o fluxo de criação/conexão de host. Para sessões secondary, valida a associação do host a um grupo permitido para a empresa; o caminho sem sessão mantém o comportamento legado.',
-    auth: 'public',
-    body: [
-      { name: 'hostname', type: 'string', required: true, description: 'Nome do host de destino.', example: '<HOSTNAME>' },
-      { name: 'porta', required: true, description: 'Porta do host; a rota verifica apenas se o campo foi enviado.', example: 3389 },
-      { name: 'email', type: 'string', required: true, description: 'E-mail associado ao fluxo.', example: 'usuario@exemplo.com' },
-    ],
-  },
-  {
     operationId: 'listActiveIncidents',
     method: 'get',
     path: '/incidentes/ativos',
@@ -626,7 +626,11 @@ function createOperation(operation: ApiOperation): OpenApiOperation {
       description: operation.successDescription ?? 'Resposta JSON gerada pela rota.',
     },
   }
-  if (operation.auth === 'jwt' || operation.auth === 'microsoft-session') {
+  if (
+    operation.auth === 'jwt' ||
+    operation.auth === 'static-bearer' ||
+    operation.auth === 'microsoft-session'
+  ) {
     responses['401'] = { description: 'Credenciais ausentes, inválidas ou sessão não autenticada.' }
   }
   if (operation.responseExample !== undefined) {
@@ -645,12 +649,22 @@ function createOperation(operation: ApiOperation): OpenApiOperation {
     summary: operation.summary,
     description: operation.description,
     operationId: operation.operationId,
+    ...(operation.serverUrl === undefined
+      ? {}
+      : {
+          servers: [{
+            url: operation.serverUrl,
+            description: 'Gateway Guacamole Lite (porta configurável por GUAC_PORT).',
+          }],
+        }),
     ...(createParameters(operation).length === 0 ? {} : { parameters: createParameters(operation) }),
     ...(operation.body === undefined ? {} : { requestBody: createRequestBody(operation.body) }),
     responses,
     ...(operation.auth === 'jwt'
       ? { security: [{ bearerAuth: [] }] }
-      : operation.auth === 'microsoft-session'
+      : operation.auth === 'static-bearer'
+        ? { security: [{ staticBearerAuth: [] }] }
+        : operation.auth === 'microsoft-session'
         ? { security: [{ microsoftSession: [] }] }
         : {}),
   }
@@ -679,6 +693,11 @@ function createOpenApiDocument(): OpenApiDocument {
     components: {
       securitySchemes: {
         bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        staticBearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          description: 'Token estático configurado no backend como API_BEARER_TOKEN.',
+        },
         microsoftSession: {
           type: 'apiKey',
           in: 'cookie',
@@ -696,6 +715,8 @@ export function getAuthLabel(auth: AuthRequirement): string {
   switch (auth) {
     case 'jwt':
       return 'JWT Bearer'
+    case 'static-bearer':
+      return 'Bearer estático'
     case 'microsoft-session':
       return 'Sessão Microsoft'
     case 'public':
