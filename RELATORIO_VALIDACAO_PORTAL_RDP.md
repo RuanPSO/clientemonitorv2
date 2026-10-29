@@ -86,5 +86,4 @@ A validação foi feita com o router de documentação em um servidor Express de
 - **APROVADO:** configuração do backend e do exemplo apontam para `http://10.86.26.18:8410/`; a rota consulta a URL diretamente, sem autenticação do Portal.
 - **APROVADO:** contrato do endpoint e caminhos da documentação foram preservados; testes da rota, documentação, suíte completa e typecheck passaram.
 - **INCONCLUSIVO:** conectividade real do ambiente de desenvolvimento com o endereço interno; não foi recebido status HTTP.
-- **NÃO VERIFICADO:** resposta real do Portal através da API, dependente de conectividade com a rede interna.
-
+- **NÃO VERIFICADO:** resposta real do Portal através da API, dependente de conectividade com a rede interna
