@@ -9,13 +9,13 @@ export function requireAccessLevel(requiredLevel: RequiredAccess) {
       req.user || (req.session as { user?: unknown } | undefined)?.user || (req.session as { account?: unknown } | undefined)?.account,
     )
 
+    if (!hasAuthenticatedIdentity) {
+      return res.status(401).json({ error: 'Autenticação necessária' })
+    }
+
     const decision = evaluateAccessRules(extractAccessIdentity(req))
 
     if (decision === 'deny') {
-      if (!hasAuthenticatedIdentity) {
-        return res.status(401).json({ error: 'Autenticação necessária' })
-      }
-
       return res.status(403).json({ error: 'Acesso negado' })
     }
 

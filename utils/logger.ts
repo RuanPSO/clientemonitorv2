@@ -6,9 +6,14 @@ const sensitiveKeys = new Set([
   'client_secret',
   'code',
   'cookie',
+  'email_smtp_password',
   'id_token',
+  'password',
+  'pass',
   'refresh_token',
   'set-cookie',
+  'token',
+  'token_ativacao',
 ])
 
 function redact(value: unknown): unknown {

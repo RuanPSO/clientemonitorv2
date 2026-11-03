@@ -223,6 +223,74 @@ export function gerarHashWerkzeug(senha: string): string {
   return `pbkdf2:${digest}:${iterations}$${salt}$${hash}`
 }
 
+/**
+ * Gera um hash compatível com o formato Werkzeug scrypt usado no ambiente.
+ * Estrutura esperada: scrypt:32768:8:1$salt$hash_hexadecimal
+ */
+export function gerarHashScrypt(senha: string): string {
+  const N = 32768
+  const r = 8
+  const p = 1
+  const keylen = 64
+  const saltBytes = crypto.randomBytes(16)
+  const salt = saltBytes.toString('base64url')
+  const hash = crypto.scryptSync(senha, saltBytes, keylen, {
+    N,
+    r,
+    p,
+    maxmem: 128 * N * r * 2,
+  }).toString('hex')
+
+  return `scrypt:${N}:${r}:${p}$${salt}$${hash}`
+}
+
+/**
+ * Verifica um hash no formato scrypt:32768:8:1$salt$hash_hexadecimal.
+ * Compara em tempo constante usando timingSafeEqual.
+ */
+export function verificarSenhaScrypt(senha: string, hashArmazenado: string): boolean {
+  try {
+    const [methodPart, salt, hashEsperado] = hashArmazenado.split('$')
+    if (!methodPart || !salt || !hashEsperado) return false
+
+    const methodParts = methodPart.split(':')
+    if (methodParts[0] !== 'scrypt') return false
+
+    const N = Number(methodParts[1] ?? '32768')
+    const r = Number(methodParts[2] ?? '8')
+    const p = Number(methodParts[3] ?? '1')
+    if (!Number.isFinite(N) || !Number.isFinite(r) || !Number.isFinite(p)) return false
+
+    const expected = Buffer.from(hashEsperado, 'hex')
+    const derived = crypto.scryptSync(senha, Buffer.from(salt, 'base64url'), expected.length, {
+      N,
+      r,
+      p,
+      maxmem: 128 * N * r * 2,
+    })
+
+    if (derived.length !== expected.length) return false
+    return crypto.timingSafeEqual(derived, expected)
+  } catch (error) {
+    console.error('[auth] Erro ao verificar hash scrypt:', error)
+    return false
+  }
+}
+
+/**
+ * Regras mínimas de complexidade para senhas do cliente.
+ * Exige letra minúscula, maiúscula, número e caractere especial.
+ */
+export function validarSenhaForte(senha: string): boolean {
+  const s = String(senha ?? '').trim()
+  if (s.length < 8) return false
+  if (!/[a-z]/.test(s)) return false
+  if (!/[A-Z]/.test(s)) return false
+  if (!/\d/.test(s)) return false
+  if (!/[^A-Za-z0-9]/.test(s)) return false
+  return true
+}
+
 // utils/helpers.ts
 
 /**

@@ -1,6 +1,6 @@
 // services/auth.service.ts
 import { UsuarioRepository, type UsuarioPublico } from '../repositories/cliente/usuario.repository.js'
-import { verificarSenhaWerkzeug } from '../utils/helpers.js'
+import { verificarSenhaScrypt, verificarSenhaWerkzeug } from '../utils/helpers.js'
 
 export interface LoginResult {
   ok: true
@@ -36,7 +36,11 @@ export class AuthService {
         return { ok: false, motivo: 'usuario_inativo', mensagem: 'Usuário inativo' }
       }
 
-      const senhaOk = verificarSenhaWerkzeug(senha, usuario.senha)
+      const senhaHash = usuario.senha ?? ''
+      const senhaOk = senhaHash.startsWith('scrypt:')
+        ? verificarSenhaScrypt(senha, senhaHash)
+        : verificarSenhaWerkzeug(senha, senhaHash)
+
       if (!senhaOk) {
         return { ok: false, motivo: 'credenciais_invalidas', mensagem: 'E-mail ou senha inválidos' }
       }

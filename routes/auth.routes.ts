@@ -9,12 +9,23 @@ import crypto from 'node:crypto'
 import { AuthService } from '../services/auth.service.js'
 import { validarToken } from '../middlewares/auth.middleware.js'
 import { UsuarioRepository } from '../repositories/cliente/usuario.repository.js'
-import { gerarHashWerkzeug, verificarSenhaWerkzeug } from '../utils/helpers.js'
-import { enviarEmailAtivacao } from '../lib/email.js'
+import { gerarHashScrypt, validarSenhaForte } from '../utils/helpers.js'
 import { prismaCliente } from '../lib/prisma-cliente.js'
+import { requireAccessLevel } from '../middlewares/access-control.middleware.js'
+import { logger } from '../utils/logger.js'
+import { createActivationUrl } from '../services/email/email.config.js'
+import { EmailServiceError, enviarEmail, verificarConexaoSmtp } from '../services/email/email.service.js'
+import { ASSUNTO_CONVITE_CLIENTE, renderConviteCliente } from '../services/email/templates/convite-cliente.template.js'
 
 const router = Router()
 const SECRET = process.env.SECRET_KEY ?? process.env.APIKEY
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const details = error as { code?: unknown; message?: unknown }
+  const message = typeof details.message === 'string' ? details.message : ''
+  return details.code === 'P2002' || details.code === '23505' || /unique|duplicate/i.test(message)
+}
 
 if (!SECRET) {
   throw new Error('SECRET_KEY (ou APIKEY) não definida no .env')
@@ -121,7 +132,7 @@ router.get('/me', validarToken, async (req: Request, res: Response) => {
 // POST /users
 // ✅ Sem SELECT prévio. Confia na UNIQUE do banco. Elimina race.
 // ─────────────────────────────────────────────────────────────
-router.post('/users', validarToken, async (req: Request, res: Response) => {
+router.post('/users', validarToken, requireAccessLevel('total'), async (req: Request, res: Response) => {
   try {
     const { nome, email, cargo, grupo } = req.body ?? {}
 
@@ -131,52 +142,354 @@ router.post('/users', validarToken, async (req: Request, res: Response) => {
 
     const emailNorm = String(email).trim().toLowerCase()
     const tokenAtivacao = crypto.randomBytes(32).toString('base64url')
+    const nomeLimpo = String(nome).trim()
+    const grupoId = Number(grupo)
+    if (!nomeLimpo || !Number.isInteger(grupoId) || grupoId <= 0) {
+      return res.status(400).json({ error: 'Dados inválidos' })
+    }
+
+    const grupos = await prismaCliente.$queryRaw<Array<{ nome: string }>>`
+      SELECT nome FROM grupos_hosts WHERE id = ${grupoId} LIMIT 1
+    `
+    const grupoInfo = grupos[0]
+    if (!grupoInfo) return res.status(400).json({ error: 'Grupo inválido' })
+
+    let link: string
+    try {
+      link = createActivationUrl(tokenAtivacao)
+    } catch (error) {
+      logger.error('Configuração de URL de ativação inválida', {
+        errorName: error instanceof Error ? error.name : 'unknown',
+      })
+      return res.status(503).json({ error: 'Configuração de convite indisponível' })
+    }
 
     let id: number
     try {
       id = await UsuarioRepository.criar({
-        nome: String(nome).trim(),
+        nome: nomeLimpo,
         email: emailNorm,
         cargo: cargo ? String(cargo).trim() : null,
-        id_grupo: Number(grupo),
+        id_grupo: grupoId,
         token_ativacao: tokenAtivacao,
       })
-    } catch (errIns: any) {
-      const msg = String(errIns?.message ?? '')
-      // P2002 = unique constraint do Prisma. Também cobrimos pela mensagem.
-      if (errIns?.code === 'P2002' || /unique|duplicate/i.test(msg)) {
+    } catch (errIns: unknown) {
+      if (isUniqueConstraintError(errIns)) {
         return res.status(409).json({ error: 'E-mail já cadastrado' })
       }
       throw errIns
     }
 
-    const appUrl = process.env.APP_URL ?? 'http://localhost:5173'
-    const link = `${appUrl}/ativar?token=${tokenAtivacao}`
-
     try {
-      await enviarEmailAtivacao({
-        destinatario: emailNorm,
-        nome: String(nome).trim(),
-        link,
+      const convite = renderConviteCliente({
+        nome: nomeLimpo,
+        email: emailNorm,
+        grupo: grupoInfo.nome.trim(),
+        urlAtivacao: link,
       })
-    } catch (errEmail) {
-      console.error('[POST /users] Erro ao enviar e-mail:', errEmail)
-      return res.status(201).json({
-        message: 'Usuário criado, mas o envio de e-mail falhou. Verifique o log.',
+      await enviarEmail(emailNorm, ASSUNTO_CONVITE_CLIENTE, convite.html, convite.texto)
+    } catch (emailError) {
+      logger.error('Falha ao enviar convite de cliente', {
+        userId: id,
+        category: emailError instanceof EmailServiceError ? emailError.category : 'configuration_or_internal',
+      })
+      return res.status(502).json({
+        message: 'Usuário criado, mas o convite não foi enviado. Tente novamente.',
         usuarioId: id,
         aviso: 'email_falhou',
       })
     }
-
-    console.log(`[ATIVAÇÃO] ${emailNorm} → ${link}`)
 
     res.status(201).json({
       message: 'Usuário criado. Aguardando ativação.',
       usuarioId: id,
     })
   } catch (e: unknown) {
-    console.error('[POST /users]', e)
-    res.status(500).json({ error: (e as Error).message })
+    logger.error('Falha ao criar usuário pelo endpoint legado', {
+      errorName: e instanceof Error ? e.name : 'unknown',
+    })
+    res.status(500).json({ error: 'Erro ao criar usuário' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// POST /clientes/cadastrar
+// O token só aparece em NODE_ENV=test com EMAIL_INCLUDE_ACTIVATION_TOKEN_IN_RESPONSE=true.
+// ─────────────────────────────────────────────────────────────
+router.post('/clientes/cadastrar', requireAccessLevel('total'), async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {}
+    const { nome, cargo, email, id_grupo } = body
+
+    const camposProibidos = ['ativo', 'senha', 'token_ativacao', 'token_expira']
+    const camposEnviados = camposProibidos.filter((campo) => Object.prototype.hasOwnProperty.call(body, campo))
+    if (camposEnviados.length > 0) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: `Campos não permitidos no cadastro: ${camposEnviados.join(', ')}`,
+      })
+    }
+
+    if (!nome || !cargo || !email || id_grupo === undefined || id_grupo === null || id_grupo === '') {
+      return res.status(400).json({ sucesso: false, erro: 'nome, cargo, email e id_grupo são obrigatórios' })
+    }
+
+    const nomeLimpo = String(nome).trim()
+    const cargoLimpo = String(cargo).trim()
+    const emailLimpo = String(email).trim().toLowerCase()
+    const idGrupoNumero = Number(id_grupo)
+
+    if (!nomeLimpo || !cargoLimpo || !emailLimpo) {
+      return res.status(400).json({ sucesso: false, erro: 'nome, cargo e e-mail não podem ficar vazios' })
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(emailLimpo)) {
+      return res.status(400).json({ sucesso: false, erro: 'E-mail inválido' })
+    }
+
+    if (!Number.isInteger(idGrupoNumero) || idGrupoNumero <= 0) {
+      return res.status(400).json({ sucesso: false, erro: 'id_grupo inválido' })
+    }
+
+    const grupos = await prismaCliente.$queryRaw<Array<{ id: number; nome: string }>>`
+      SELECT id, nome
+      FROM grupos_hosts
+      WHERE id = ${idGrupoNumero}
+      LIMIT 1
+    `
+    const grupoInfo = grupos[0]
+    if (!grupoInfo) {
+      return res.status(400).json({ sucesso: false, erro: 'Grupo informado não existe ou não está autorizado para cadastro' })
+    }
+
+    const emailDuplicado = await prismaCliente.$queryRaw<Array<{ id: number }>>`
+      SELECT id
+      FROM usuarios
+      WHERE email = ${emailLimpo}
+      LIMIT 1
+    `
+
+    if (emailDuplicado.length > 0) {
+      return res.status(409).json({ sucesso: false, erro: 'E-mail já cadastrado' })
+    }
+
+    const tokenAtivacao = crypto.randomBytes(32).toString('base64url')
+    const tokenExpira = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    let urlAtivacao: string
+    try {
+      urlAtivacao = createActivationUrl(tokenAtivacao)
+    } catch (error) {
+      logger.error('Configuração de URL de ativação inválida', {
+        errorName: error instanceof Error ? error.name : 'unknown',
+      })
+      return res.status(503).json({ sucesso: false, erro: 'Configuração de convite indisponível' })
+    }
+    const convite = renderConviteCliente({
+      nome: nomeLimpo,
+      email: emailLimpo,
+      grupo: grupoInfo.nome.trim(),
+      urlAtivacao,
+    })
+    let idUsuario: number
+    try {
+      idUsuario = await UsuarioRepository.criar({
+        nome: nomeLimpo,
+        email: emailLimpo,
+        cargo: cargoLimpo,
+        id_grupo: idGrupoNumero,
+        token_ativacao: tokenAtivacao,
+        token_expira: tokenExpira,
+      })
+    } catch (createError) {
+      if (isUniqueConstraintError(createError)) {
+        return res.status(409).json({ sucesso: false, erro: 'E-mail já cadastrado' })
+      }
+      throw createError
+    }
+
+    try {
+      await enviarEmail(emailLimpo, ASSUNTO_CONVITE_CLIENTE, convite.html, convite.texto)
+    } catch (emailError) {
+      logger.error('Cadastro criado, mas o convite de cliente não foi enviado', {
+        userId: idUsuario,
+        category: emailError instanceof EmailServiceError ? emailError.category : 'configuration_or_internal',
+      })
+      return res.status(502).json({
+        sucesso: false,
+        cadastro_criado: true,
+        email_enviado: false,
+        mensagem: 'O cadastro foi criado, mas não foi possível enviar o convite. Tente novamente.',
+      })
+    }
+
+    const incluirTokenDeTeste =
+      process.env.NODE_ENV === 'test' && process.env.EMAIL_INCLUDE_ACTIVATION_TOKEN_IN_RESPONSE === 'true'
+
+    return res.status(201).json({
+      sucesso: true,
+      mensagem: 'Cadastro criado e convite enviado com sucesso.',
+      usuario: {
+        id: idUsuario,
+        nome: nomeLimpo,
+        email: emailLimpo,
+        id_grupo: idGrupoNumero,
+        ativo: false,
+      },
+      email: {
+        enviado: true,
+        destinatario: emailLimpo,
+      },
+      ...(incluirTokenDeTeste ? { token_ativacao: tokenAtivacao } : {}),
+      token_expira: tokenExpira.toISOString(),
+    })
+  } catch (error: unknown) {
+    logger.error('Falha ao processar cadastro de cliente', {
+      errorName: error instanceof Error ? error.name : 'unknown',
+    })
+    return res.status(500).json({ sucesso: false, erro: 'Erro ao cadastrar cliente' })
+  }
+})
+
+router.post('/clientes/:id/reenviar-convite', requireAccessLevel('total'), async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ sucesso: false, erro: 'ID de cliente inválido' })
+  }
+
+  try {
+    const existing = await UsuarioRepository.findConvitePendenteById(id)
+    if (!existing) return res.status(404).json({ sucesso: false, erro: 'Cliente não encontrado' })
+    if (existing.ativo) return res.status(409).json({ sucesso: false, erro: 'Não é possível reenviar convite para conta ativada' })
+
+    const tokenAtivacao = crypto.randomBytes(32).toString('base64url')
+    const tokenExpira = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    let urlAtivacao: string
+    try {
+      urlAtivacao = createActivationUrl(tokenAtivacao)
+    } catch (error) {
+      logger.error('Configuração de URL de ativação inválida', {
+        userId: id,
+        errorName: error instanceof Error ? error.name : 'unknown',
+      })
+      return res.status(503).json({ sucesso: false, erro: 'Configuração de convite indisponível' })
+    }
+    const convite = renderConviteCliente({
+      nome: existing.nome,
+      email: existing.email,
+      grupo: existing.grupo,
+      urlAtivacao,
+    })
+
+    const pending = await UsuarioRepository.emitirNovoConvite(id, tokenAtivacao, tokenExpira)
+    if (!pending) {
+      return res.status(409).json({ sucesso: false, erro: 'A conta foi ativada ou atualizada; atualize os dados e tente novamente' })
+    }
+
+    try {
+      await enviarEmail(pending.email, ASSUNTO_CONVITE_CLIENTE, convite.html, convite.texto)
+    } catch (emailError) {
+      logger.error('Falha ao reenviar convite de cliente', {
+        userId: id,
+        category: emailError instanceof EmailServiceError ? emailError.category : 'configuration_or_internal',
+      })
+      return res.status(502).json({
+        sucesso: false,
+        cadastro_criado: true,
+        email_enviado: false,
+        mensagem: 'Não foi possível enviar o convite. Tente novamente.',
+      })
+    }
+
+    return res.json({
+      sucesso: true,
+      mensagem: 'Convite reenviado com sucesso.',
+      usuario: { id: pending.id, nome: pending.nome, email: pending.email, ativo: false },
+      email: { enviado: true, destinatario: pending.email },
+      token_expira: pending.token_expira?.toISOString() ?? tokenExpira.toISOString(),
+    })
+  } catch (error: unknown) {
+    logger.error('Falha ao processar reenvio de convite', {
+      userId: id,
+      errorName: error instanceof Error ? error.name : 'unknown',
+    })
+    return res.status(500).json({ sucesso: false, erro: 'Erro ao reenviar convite' })
+  }
+})
+
+router.post('/email/testar', requireAccessLevel('total'), async (_req: Request, res: Response) => {
+  try {
+    await verificarConexaoSmtp()
+    return res.json({ sucesso: true, mensagem: 'Conexão SMTP estabelecida com sucesso.' })
+  } catch (error: unknown) {
+    logger.error('Falha no teste administrativo de conexão SMTP', {
+      category: error instanceof EmailServiceError ? error.category : 'configuration_or_internal',
+    })
+    return res.status(502).json({ sucesso: false, mensagem: 'Não foi possível estabelecer conexão com o SMTP.' })
+  }
+})
+
+// ─────────────────────────────────────────────────────────────
+// POST /clientes/ativar
+// ─────────────────────────────────────────────────────────────
+router.post('/clientes/ativar', async (req: Request, res: Response) => {
+  try {
+    const { token, senha, confirmarSenha } = req.body ?? {}
+
+    if (!token || !senha || !confirmarSenha) {
+      return res.status(400).json({ sucesso: false, erro: 'token, senha e confirmarSenha são obrigatórios' })
+    }
+
+    const tokenAtivacao = String(token).trim()
+    const senhaLimpa = String(senha)
+    const confirmarSenhaLimpa = String(confirmarSenha)
+
+    if (senhaLimpa !== confirmarSenhaLimpa) {
+      return res.status(400).json({ sucesso: false, erro: 'As senhas não conferem' })
+    }
+
+    if (!validarSenhaForte(senhaLimpa)) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: 'A senha deve ter no mínimo 8 caracteres, incluindo letra maiúscula, minúscula, número e caractere especial',
+      })
+    }
+
+    const usuario = await UsuarioRepository.findByTokenAtivacao(tokenAtivacao)
+    if (!usuario) {
+      return res.status(404).json({ sucesso: false, erro: 'Token inválido' })
+    }
+
+    if (usuario.ativo) {
+      return res.status(409).json({ sucesso: false, erro: 'Usuário já ativado' })
+    }
+
+    if (usuario.token_expira && new Date(usuario.token_expira) < new Date()) {
+      return res.status(410).json({ sucesso: false, erro: 'Token expirado' })
+    }
+
+    const senhaHash = gerarHashScrypt(senhaLimpa)
+    const atualizado = await UsuarioRepository.ativarComSenhaSeValido(usuario.id, senhaHash, tokenAtivacao)
+
+    if (!atualizado) {
+      return res.status(409).json({ sucesso: false, erro: 'Token já utilizado ou expirado' })
+    }
+
+    return res.json({
+      sucesso: true,
+      mensagem: 'Conta ativada com sucesso',
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        ativo: true,
+      },
+    })
+  } catch (error: unknown) {
+    logger.error('Falha ao ativar conta de cliente', {
+      errorName: error instanceof Error ? error.name : 'unknown',
+    })
+    return res.status(500).json({ sucesso: false, erro: 'Erro ao ativar conta' })
   }
 })
 
@@ -209,7 +522,9 @@ router.get('/ativar', async (req: Request, res: Response) => {
       email: user.email,
     })
   } catch (e: unknown) {
-    console.error('[GET /ativar]', e)
+    logger.error('Falha ao validar token de ativação', {
+      errorName: e instanceof Error ? e.name : 'unknown',
+    })
     res.status(500).json({ error: 'Erro ao validar token' })
   }
 })
@@ -219,14 +534,23 @@ router.get('/ativar', async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/ativar', async (req: Request, res: Response) => {
   try {
-    const { token, senha } = req.body ?? {}
+    const { token, senha, confirmarSenha } = req.body ?? {}
 
     if (!token || !senha) {
       return res.status(400).json({ error: 'Dados inválidos' })
     }
 
-    if (String(senha).length < 6) {
-      return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres' })
+    const senhaLimpa = String(senha)
+    const confirmarSenhaLimpa = confirmarSenha === undefined ? senhaLimpa : String(confirmarSenha)
+
+    if (senhaLimpa !== confirmarSenhaLimpa) {
+      return res.status(400).json({ error: 'As senhas não conferem' })
+    }
+
+    if (!validarSenhaForte(senhaLimpa)) {
+      return res.status(400).json({
+        error: 'A senha deve ter no mínimo 8 caracteres, incluindo letra maiúscula, minúscula, número e caractere especial',
+      })
     }
 
     const user = await UsuarioRepository.findByTokenAtivacao(String(token))
@@ -242,14 +566,19 @@ router.post('/ativar', async (req: Request, res: Response) => {
       return res.status(409).json({ error: 'Usuário já ativado' })
     }
 
-    const senhaHash = gerarHashWerkzeug(String(senha))
-    await UsuarioRepository.ativarComSenha(user.id, senhaHash)
+    const senhaHash = gerarHashScrypt(senhaLimpa)
+    const atualizado = await UsuarioRepository.ativarComSenhaSeValido(user.id, senhaHash, String(token))
+    if (!atualizado) {
+      return res.status(409).json({ error: 'Token já utilizado ou expirado' })
+    }
 
-    console.log(`[ATIVADO] ${user.email}`)
+    logger.info('Conta ativada', { userId: user.id })
 
     res.json({ message: 'Conta ativada com sucesso' })
   } catch (e: unknown) {
-    console.error('[POST /ativar]', e)
+    logger.error('Falha ao ativar conta', {
+      errorName: e instanceof Error ? e.name : 'unknown',
+    })
     res.status(500).json({ error: 'Erro ao ativar conta' })
   }
 })

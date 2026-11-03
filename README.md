@@ -55,6 +55,115 @@ Copie `.env.example` para `.env` somente se ainda não houver um `.env`, e preen
 
 O carregamento de ambiente usa `dotenv` com `override: true`. A inicialização falha com a lista de variáveis ausentes (sem imprimir valores) ou se `SESSION_SECRET` tiver menos de 32 caracteres. Em produção, `FRONTEND_URL` deve ser definido explicitamente; em desenvolvimento, o padrão permitido é `http://localhost:5173`. Em desenvolvimento, `AZURE_REDIRECT_URI` deve corresponder à porta do backend (padrão `http://localhost:3000/auth/callback`); `http://localhost:5173/auth/callback` é a porta SPA/frontend e não funciona como callback do backend. No startup são registrados o client ID, tenant ID, tamanho do client secret e redirect URI; o segredo em si nunca é registrado.
 
+## Convites de acesso por e-mail
+
+O fluxo de cadastro cria a conta como inativa, mantém o token de uso único válido por 24 horas e envia o convite pelo SMTP. O transporte é inicializado uma vez no startup e reutilizado; o startup valida a configuração, mas não abre conexão SMTP. Configure estas variáveis somente no ambiente do backend, sem substituir outras entradas existentes no `.env`:
+
+```dotenv
+EMAIL_SMTP_HOST=
+EMAIL_SMTP_PORT=
+EMAIL_SMTP_USER=
+EMAIL_SMTP_PASSWORD=
+EMAIL_FROM_ADDRESS=
+EMAIL_USE_TLS=true
+EMAIL_USE_SSL=false
+CLIENTMONITOR_URL=http://ENDERECO_INTERNO_CLIENTMONITOR
+```
+
+`EMAIL_USE_SSL=true` habilita TLS implícito. `EMAIL_USE_TLS=true` com SSL desativado exige STARTTLS. Não habilite ambos ao mesmo tempo. `CLIENTMONITOR_URL` deve ser a URL real do ClientMonitor acessível pelo destinatário; não use o endereço do painel administrativo. O endereço precisa ser definido pelo ambiente de implantação.
+Se `CLIENTMONITOR_URL` estiver ausente ou inválida, o cadastro e o reenvio respondem HTTP 503 antes de criar ou atualizar o token.
+
+As operações administrativas abaixo exigem sessão autenticada e nível de acesso `total` conforme `config/access-rules.json` (identidade Datacore na política atual).
+
+### Criar e enviar um convite
+
+```http
+POST /clientes/cadastrar
+Content-Type: application/json
+Cookie: clientemonitor.sid=...
+```
+
+```json
+{
+  "nome": "João da Silva",
+  "cargo": "Operações",
+  "email": "joao.silva@empresa.com.br",
+  "id_grupo": 10
+}
+```
+
+Em caso de sucesso, responde HTTP 201 com os dados públicos do usuário (`ativo: false`), destinatário e validade do token, sem expor o token. O token só pode ser incluído para testes quando `NODE_ENV=test` e `EMAIL_INCLUDE_ACTIVATION_TOKEN_IN_RESPONSE=true`. Se o SMTP falhar depois da criação, responde HTTP 502 com `cadastro_criado: true` e `email_enviado: false`; o usuário permanece inativo e o token atual continua válido.
+
+Resposta de sucesso:
+
+```json
+{
+  "sucesso": true,
+  "mensagem": "Cadastro criado e convite enviado com sucesso.",
+  "usuario": {
+    "id": 123,
+    "nome": "João da Silva",
+    "email": "joao.silva@empresa.com.br",
+    "id_grupo": 10,
+    "ativo": false
+  },
+  "email": {
+    "enviado": true,
+    "destinatario": "joao.silva@empresa.com.br"
+  },
+  "token_expira": "2026-11-04T15:00:00.000Z"
+}
+```
+
+Falha de envio após a criação (HTTP 502):
+
+```json
+{
+  "sucesso": false,
+  "cadastro_criado": true,
+  "email_enviado": false,
+  "mensagem": "O cadastro foi criado, mas não foi possível enviar o convite. Tente novamente."
+}
+```
+
+### Reenviar convite e testar SMTP
+
+- `POST /clientes/:id/reenviar-convite` emite um novo token de uso único, invalida o anterior, renova a validade para 24 horas e tenta enviar o e-mail. Contas já ativadas não podem receber convite.
+- `POST /email/testar` usa `transporter.verify()` para testar a conexão e não envia mensagem.
+
+Exemplos de chamadas administrativas:
+
+```http
+POST /clientes/123/reenviar-convite
+Cookie: clientemonitor.sid=...
+
+POST /email/testar
+Cookie: clientemonitor.sid=...
+```
+
+O reenvio responde HTTP 200 com `sucesso: true`, dados públicos do usuário, destinatário e a nova expiração; não retorna o token. Se o SMTP falhar, responde HTTP 502 e mantém a conta inativa.
+
+Após configurar corretamente a conexão SMTP, a rota de teste responde HTTP 200:
+
+```json
+{
+  "sucesso": true,
+  "mensagem": "Conexão SMTP estabelecida com sucesso."
+}
+```
+
+As duas rotas usam a mesma autenticação administrativa. Não envie senha SMTP ou token de ativação na requisição. Erros SMTP são registrados somente por categoria técnica, sem credenciais, endereço do destinatário ou token.
+
+Para verificar se o cadastro foi persistido e segue inativo, consulte o banco de clientes:
+
+```sql
+SELECT id, nome, email, ativo, token_expira
+FROM usuarios
+WHERE email = 'joao.silva@empresa.com.br';
+```
+
+Uma resposta 502 significa que o cadastro existe, mas o envio falhou. Confira host, porta, autenticação e política TLS no ambiente do backend; valide a conexão com `POST /email/testar` e, depois de corrigir SMTP, use o endpoint de reenvio. A conta só fica ativa depois de definir a senha com um token válido.
+
 ### Verificar conectividade do Portal RDP
 
 `GET /api/conectado` consulta diretamente a URL configurada em `GUACAMOLE_BASE_URL` (padrão `http://10.86.26.18:8410/`) com `GET`, sem autenticação. Responde `{"status":"conectado"}` quando o Portal RDP retorna HTTP 200 com conteúdo HTML. Não inicia uma sessão RDP. Redirecionamentos não são seguidos.

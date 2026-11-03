@@ -27,6 +27,7 @@ import companyZabbixTestRoutes from './routes/company-zabbix-test.routes.js'
 import conectadoRoutes from './routes/conectado.routes.js'
 import { validateMicrosoftAuthEnv } from './config/env.js'
 import { logger } from './utils/logger.js'
+import { initializeEmailService } from './services/email/email.service.js'
 
 const app = express()
 try {
@@ -44,6 +45,21 @@ try {
     '   PORT=3000',
     '',
     '   Cadastre a mesma URI no Entra ID em Authentication > Web e reinicie a API.',
+    '',
+  ].join('\n'))
+  process.exit(1)
+}
+try {
+  initializeEmailService()
+} catch (error) {
+  const reason = error instanceof Error ? error.message : 'Erro desconhecido na configuração SMTP'
+  console.error([
+    '',
+    '❌ Não foi possível iniciar a API: configuração SMTP inválida.',
+    `   ${reason}`,
+    '',
+    '   Confira EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER,',
+    '   EMAIL_SMTP_PASSWORD, EMAIL_FROM_ADDRESS, EMAIL_USE_TLS e EMAIL_USE_SSL no .env.',
     '',
   ].join('\n'))
   process.exit(1)
