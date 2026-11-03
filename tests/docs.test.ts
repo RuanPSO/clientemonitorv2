@@ -60,7 +60,7 @@ test('OpenAPI deriva versão, caminhos e operações do catálogo confirmado', (
   )
   assert.deepEqual(
     openApiDocument.paths['/host/by-name/{hostname}/relatorio']?.get?.security,
-    [{ microsoftSession: [] }],
+    [{ bearerAuth: [] }, { microsoftSession: [] }],
   )
   for (const path of [
     '/incidentes/ativos',

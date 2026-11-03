@@ -46,6 +46,7 @@ function cookieFrom(response: Response): string {
 
 test('política das rotas de hosts e grupos por experiência', async () => {
   const originals = {
+    getRelatorioPorNome: ZabbixService.getRelatorioPorNome,
     listarHostsComIp: ZabbixService.listarHostsComIp,
     listarHostsComIpPorGrupos: ZabbixService.listarHostsComIpPorGrupos,
     listarHostsComIpESo: ZabbixService.listarHostsComIpESo,
@@ -62,6 +63,13 @@ test('política das rotas de hosts e grupos por experiência', async () => {
     getProblemas24h: IncidentesService.getProblemas24h,
   }
 
+  ZabbixService.getRelatorioPorNome = async () => ({
+    cpu: [],
+    memoria: [],
+    disponibilidade: { uptime: 0, downtime: 0, availability: 0 },
+    discos: [],
+    services: [],
+  })
   ZabbixService.listarHostsComIp = async () => []
   ZabbixService.listarHostsComIpPorGrupos = async () => []
   ZabbixService.listarHostsComIpESo = async () => []
@@ -118,6 +126,7 @@ test('política das rotas de hosts e grupos por experiência', async () => {
   const secret = process.env.SECRET_KEY ?? process.env.APIKEY
   assert.ok(secret)
   const authorization = `Bearer ${jwt.sign({ origem: 'portal' }, secret, { algorithm: 'HS256' })}`
+  const hostReportPath = '/host/by-name/test-host/relatorio?inicio=2026-01-01T00:00:00&fim=2026-01-01T01:00:00'
 
   try {
     const noSessionStatuses = await Promise.all(
@@ -127,6 +136,18 @@ test('política das rotas de hosts e grupos por experiência', async () => {
       }),
     )
     assert.deepEqual(noSessionStatuses, Array(noSessionStatuses.length).fill(401))
+
+    assert.equal((await fetch(`${baseUrl}${hostReportPath}`)).status, 401)
+    const tokenReport = await fetch(`${baseUrl}${hostReportPath}`, {
+      headers: { authorization },
+    })
+    assert.equal(tokenReport.status, 200)
+    assert.equal(
+      (await fetch(`${baseUrl}${hostReportPath}`, {
+        headers: { authorization: 'Bearer invalid-token' },
+      })).status,
+      401,
+    )
 
     const missingClassification = await fetch(`${baseUrl}/test/session/missing`, { method: 'POST' })
     const missingClassificationCookie = cookieFrom(missingClassification)
@@ -148,6 +169,16 @@ test('política das rotas de hosts e grupos por experiência', async () => {
 
     const secondarySession = await fetch(`${baseUrl}/test/session/secondary`, { method: 'POST' })
     const secondaryCookie = cookieFrom(secondarySession)
+    assert.equal(
+      (await fetch(`${baseUrl}${hostReportPath}`, { headers: { cookie: secondaryCookie } })).status,
+      403,
+    )
+    assert.equal(
+      (await fetch(`${baseUrl}${hostReportPath}`, {
+        headers: { cookie: secondaryCookie, authorization },
+      })).status,
+      200,
+    )
     const secondaryAllowedStatuses = await Promise.all(
       allowedRoutes.map(async (path) => (
         await fetch(`${baseUrl}${path}`, { headers: { cookie: secondaryCookie, authorization } })
@@ -164,6 +195,10 @@ test('política das rotas de hosts e grupos por experiência', async () => {
 
     const normalSession = await fetch(`${baseUrl}/test/session/normal`, { method: 'POST' })
     const normalCookie = cookieFrom(normalSession)
+    assert.equal(
+      (await fetch(`${baseUrl}${hostReportPath}`, { headers: { cookie: normalCookie } })).status,
+      200,
+    )
     const normalStatuses = await Promise.all(
       [...allowedRoutes, ...normalOnlyRoutes].map(async (path) => (
         await fetch(`${baseUrl}${path}`, { headers: { cookie: normalCookie, authorization } })
@@ -174,6 +209,7 @@ test('política das rotas de hosts e grupos por experiência', async () => {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve())
     })
+    ZabbixService.getRelatorioPorNome = originals.getRelatorioPorNome
     ZabbixService.listarHostsComIp = originals.listarHostsComIp
     ZabbixService.listarHostsComIpPorGrupos = originals.listarHostsComIpPorGrupos
     ZabbixService.listarHostsComIpESo = originals.listarHostsComIpESo

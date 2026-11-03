@@ -1,7 +1,10 @@
 // routes/host.routes.ts
 import { Router, type Request, type Response } from 'express'
 import { ZabbixService } from '../services/zabbix.service.js'
-import { requireExperience, requireExperienceOrLegacyJwt } from '../middlewares/experience.middleware.js'
+import {
+  requireExperienceOrJwt,
+  requireExperienceOrLegacyJwt,
+} from '../middlewares/experience.middleware.js'
 import { isHostGroupAllowed } from '../config/company-host-groups.js'
 import { parseHostid, parsePeriodo, parsePeriodoTimestamps } from './_helpers.js'
 import { getAllowedCompanyGroups } from './_company-scope.js'
@@ -102,7 +105,7 @@ router.get(
 // ─────────────────────────────────────────────────────────────
 router.get(
   '/host/by-name/:hostname/relatorio',
-  requireExperience('normal'),
+  requireExperienceOrJwt('normal'),
   async (req: Request<{ hostname: string }>, res: Response) => {
     try {
       const { hostname } = req.params

@@ -33,3 +33,13 @@ export function requireExperienceOrLegacyJwt(requiredExperience: ExperienceRequi
     )
   }
 }
+
+export function requireExperienceOrJwt(requiredExperience: ExperienceRequirement) {
+  const experienceMiddleware = requireExperience(requiredExperience)
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (req.headers.authorization) return validarToken(req, res, next)
+
+    return experienceMiddleware(req, res, next)
+  }
+}

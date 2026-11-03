@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 type HttpMethod = 'get' | 'post'
-type AuthRequirement = 'public' | 'jwt' | 'static-bearer' | 'microsoft-session'
+type AuthRequirement = 'public' | 'jwt' | 'static-bearer' | 'microsoft-session' | 'jwt-or-microsoft-session'
 type ValueType = 'string' | 'integer' | 'number' | 'boolean'
 
 interface ApiField {
@@ -327,8 +327,8 @@ export const apiOperations: ApiOperation[] = [
     path: '/host/by-name/:hostname/relatorio',
     category: 'Hosts',
     summary: 'Consultar relatório pelo nome do host',
-    description: 'Requer sessão Microsoft autenticada com experiência normal. O período inicial e final são obrigatórios; o agrupamento padrão é 15min.',
-    auth: 'microsoft-session',
+    description: 'Aceita JWT Bearer válido ou sessão Microsoft com experiência normal. O período inicial e final são obrigatórios; o agrupamento padrão é 15min.',
+    auth: 'jwt-or-microsoft-session',
     query: [
       { name: 'inicio', type: 'string', required: true, description: 'Início do período; formato aceito pelo serviço.', example: '<INICIO_ISO_8601>' },
       { name: 'fim', type: 'string', required: true, description: 'Fim do período; formato aceito pelo serviço.', example: '<FIM_ISO_8601>' },
@@ -664,9 +664,11 @@ function createOperation(operation: ApiOperation): OpenApiOperation {
       ? { security: [{ bearerAuth: [] }] }
       : operation.auth === 'static-bearer'
         ? { security: [{ staticBearerAuth: [] }] }
-        : operation.auth === 'microsoft-session'
-        ? { security: [{ microsoftSession: [] }] }
-        : {}),
+        : operation.auth === 'jwt-or-microsoft-session'
+          ? { security: [{ bearerAuth: [] }, { microsoftSession: [] }] }
+          : operation.auth === 'microsoft-session'
+            ? { security: [{ microsoftSession: [] }] }
+            : {}),
   }
 }
 
@@ -719,6 +721,8 @@ export function getAuthLabel(auth: AuthRequirement): string {
       return 'Bearer estático'
     case 'microsoft-session':
       return 'Sessão Microsoft'
+    case 'jwt-or-microsoft-session':
+      return 'JWT Bearer ou sessão Microsoft'
     case 'public':
       return 'Sem autenticação na rota'
   }
