@@ -64,23 +64,48 @@ EMAIL_SMTP_HOST=
 EMAIL_SMTP_PORT=
 EMAIL_SMTP_USER=
 EMAIL_SMTP_PASSWORD=
-EMAIL_FROM_ADDRESS=
 EMAIL_USE_TLS=true
 EMAIL_USE_SSL=false
 CLIENTMONITOR_URL=http://ENDERECO_INTERNO_CLIENTMONITOR
 ```
 
-`EMAIL_USE_SSL=true` habilita TLS implícito. `EMAIL_USE_TLS=true` com SSL desativado exige STARTTLS. Não habilite ambos ao mesmo tempo. `CLIENTMONITOR_URL` deve ser a URL real do ClientMonitor acessível pelo destinatário; não use o endereço do painel administrativo. O endereço precisa ser definido pelo ambiente de implantação.
+O remetente é sempre `EMAIL_SMTP_USER`. `EMAIL_USE_SSL=true` habilita TLS implícito e tem prioridade se ambas as opções estiverem ativadas; `EMAIL_USE_TLS=true` com SSL desativado exige STARTTLS. Quando ambas são falsas, TLS é desativado. `CLIENTMONITOR_URL` deve ser a URL real do ClientMonitor acessível pelo destinatário; não use o endereço do painel administrativo. O endereço precisa ser definido pelo ambiente de implantação.
 Se `CLIENTMONITOR_URL` estiver ausente ou inválida, o cadastro e o reenvio respondem HTTP 503 antes de criar ou atualizar o token.
 
-As operações administrativas abaixo exigem sessão autenticada e nível de acesso `total` conforme `config/access-rules.json` (identidade Datacore na política atual).
+### Enviar e-mail sem autenticação
+
+`POST /send-email` é uma rota pública para envio de e-mail em texto simples. Não requer token, cookie, sessão ou cabeçalho de autenticação. Use a URL completa `http://localhost:3000/send-email` (ou substitua host e porta conforme o ambiente), com `Content-Type: application/json` e **Body → raw → JSON**:
+
+```json
+{
+  "to": "ruan.oliveira@spsgroup.com.br",
+  "subject": "teste e-mail",
+  "text": "Conteúdo em texto simples"
+}
+```
+
+Os três campos são obrigatórios; `to` deve conter um endereço de e-mail válido e campos adicionais são rejeitados. Em sucesso, responde HTTP 200:
+
+```json
+{
+  "success": true,
+  "messageId": "<id>",
+  "accepted": ["ruan.oliveira@spsgroup.com.br"],
+  "rejected": []
+}
+```
+
+Erros de validação ou JSON malformado retornam HTTP 400; falhas SMTP retornam HTTP 500 sem expor dados sensíveis.
+
+### Cadastro e reenvio públicos de convites
+
+As rotas abaixo não exigem token, cookie, sessão ou cabeçalho de autenticação. O cadastro cria uma conta inativa e envia o convite para o endereço informado. O reenvio é acionado pelo ID do cliente e emite um novo token, invalidando o anterior. Como são rotas públicas que enviam e-mails e podem criar contas, exponha-as somente se isso for intencional no ambiente.
 
 ### Criar e enviar um convite
 
 ```http
 POST /clientes/cadastrar
 Content-Type: application/json
-Cookie: clientemonitor.sid=...
 ```
 
 ```json
@@ -130,18 +155,51 @@ Falha de envio após a criação (HTTP 502):
 
 - `POST /clientes/:id/reenviar-convite` emite um novo token de uso único, invalida o anterior, renova a validade para 24 horas e tenta enviar o e-mail. Contas já ativadas não podem receber convite.
 - `POST /email/testar` usa `transporter.verify()` para testar a conexão e não envia mensagem.
+- `POST /email/testar-envio` envia uma mensagem de teste com destinatário, assunto e corpo definidos na requisição.
+
+Estas rotas pertencem à API iniciada com `npm start` (arquivo `index.ts`) e não usam o prefixo `/api`. `npm run start:guacamole` inicia um serviço separado, que não registra as rotas administrativas de e-mail.
 
 Exemplos de chamadas administrativas:
 
 ```http
 POST /clientes/123/reenviar-convite
-Cookie: clientemonitor.sid=...
 
 POST /email/testar
 Cookie: clientemonitor.sid=...
 ```
 
 O reenvio responde HTTP 200 com `sucesso: true`, dados públicos do usuário, destinatário e a nova expiração; não retorna o token. Se o SMTP falhar, responde HTTP 502 e mantém a conta inativa.
+
+#### Enviar e-mail de teste pelo Postman (somente desenvolvimento)
+
+`POST /email/testar-envio` só fica disponível quando o backend está em execução com `NODE_ENV=development`. Em qualquer outro ambiente, inclusive produção, responde HTTP 403 sem tentar enviar. Em desenvolvimento, a rota não exige login, sessão Microsoft Entra, cookie `clientemonitor.sid`, JWT ou cabeçalho `Authorization`.
+
+No Postman, crie uma requisição **POST** para `{{baseUrl}}/email/testar-envio`, onde `baseUrl` é a URL do backend (por exemplo, `http://localhost:3000`). Não configure cabeçalhos ou cookies de autenticação.
+
+Em **Headers**, defina `Content-Type: application/json`. Em **Body**, escolha **raw** e **JSON** e envie:
+
+```json
+{
+  "destinatario": "seu.email@empresa.com.br",
+  "assunto": "Teste de envio SMTP",
+  "corpo": "Este é um e-mail de teste enviado pelo Postman.\nSe você recebeu esta mensagem, o envio SMTP está funcionando."
+}
+```
+
+O corpo é enviado como texto simples e HTML escapado. Destinatário e assunto são validados; o corpo aceita até 10.000 caracteres. Campos adicionais, incluindo credenciais SMTP, são rejeitados. Em caso de envio confirmado pelo servidor SMTP, a API responde HTTP 200:
+
+```json
+{
+  "sucesso": true,
+  "mensagem": "E-mail de teste enviado com sucesso.",
+  "email": {
+    "enviado": true,
+    "destinatario": "seu.email@empresa.com.br"
+  }
+}
+```
+
+Se o SMTP rejeitar ou não conseguir enviar a mensagem, a API responde HTTP 502 com `sucesso: false` e `email.enviado: false`. Erros de validação retornam HTTP 400. A resposta de sucesso confirma que o servidor SMTP aceitou a mensagem para envio, não garante a entrega na caixa de entrada; confira spam/quarentena e logs do provedor se a mensagem não chegar.
 
 Após configurar corretamente a conexão SMTP, a rota de teste responde HTTP 200:
 
@@ -152,7 +210,7 @@ Após configurar corretamente a conexão SMTP, a rota de teste responde HTTP 200
 }
 ```
 
-As duas rotas usam a mesma autenticação administrativa. Não envie senha SMTP ou token de ativação na requisição. Erros SMTP são registrados somente por categoria técnica, sem credenciais, endereço do destinatário ou token.
+`POST /email/testar` continua protegido por autenticação e autorização. Cadastro e reenvio de convites são públicos. Não envie senha SMTP ou token de ativação na requisição de teste. Erros SMTP são registrados somente por categoria técnica, sem credenciais, endereço do destinatário ou token.
 
 Para verificar se o cadastro foi persistido e segue inativo, consulte o banco de clientes:
 

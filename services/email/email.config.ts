@@ -6,6 +6,7 @@ export interface EmailSmtpConfig {
   from: string
   secure: boolean
   requireTLS: boolean
+  ignoreTLS: boolean
 }
 
 export interface SmtpTransportOptions {
@@ -13,6 +14,7 @@ export interface SmtpTransportOptions {
   port: number
   secure: boolean
   requireTLS?: true
+  ignoreTLS?: true
   auth: {
     user: string
     pass: string
@@ -24,7 +26,6 @@ const requiredVariables = [
   'EMAIL_SMTP_PORT',
   'EMAIL_SMTP_USER',
   'EMAIL_SMTP_PASSWORD',
-  'EMAIL_FROM_ADDRESS',
   'EMAIL_USE_TLS',
   'EMAIL_USE_SSL',
 ] as const
@@ -33,10 +34,6 @@ function parseBoolean(name: string, value: string): boolean {
   if (value.toLowerCase() === 'true') return true
   if (value.toLowerCase() === 'false') return false
   throw new Error(`${name} deve ser "true" ou "false"`)
-}
-
-function isEmail(value: string): boolean {
-  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
 export function readEmailSmtpConfig(
@@ -52,7 +49,6 @@ export function readEmailSmtpConfig(
   const port = Number(portValue)
   const user = env.EMAIL_SMTP_USER!.trim()
   const password = env.EMAIL_SMTP_PASSWORD!
-  const from = env.EMAIL_FROM_ADDRESS!.trim()
   const useTls = parseBoolean('EMAIL_USE_TLS', env.EMAIL_USE_TLS!.trim())
   const useSsl = parseBoolean('EMAIL_USE_SSL', env.EMAIL_USE_SSL!.trim())
 
@@ -62,9 +58,8 @@ export function readEmailSmtpConfig(
   }
   if (!user) throw new Error('EMAIL_SMTP_USER não pode ficar vazio')
   if (!password.trim()) throw new Error('EMAIL_SMTP_PASSWORD não pode ficar vazio')
-  if (!isEmail(from)) throw new Error('EMAIL_FROM_ADDRESS deve ser um endereço de e-mail válido')
   if (useTls && useSsl) {
-    throw new Error('EMAIL_USE_TLS e EMAIL_USE_SSL não podem estar habilitados simultaneamente')
+    console.warn('EMAIL_USE_SSL=true tem prioridade sobre EMAIL_USE_TLS=true')
   }
 
   return {
@@ -72,9 +67,10 @@ export function readEmailSmtpConfig(
     port,
     user,
     password,
-    from,
+    from: user,
     secure: useSsl,
     requireTLS: useTls && !useSsl,
+    ignoreTLS: !useTls && !useSsl,
   }
 }
 
@@ -84,6 +80,7 @@ export function toSmtpTransportOptions(config: EmailSmtpConfig): SmtpTransportOp
     port: config.port,
     secure: config.secure,
     ...(config.requireTLS ? { requireTLS: true as const } : {}),
+    ...(config.ignoreTLS ? { ignoreTLS: true as const } : {}),
     auth: {
       user: config.user,
       pass: config.password,

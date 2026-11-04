@@ -20,7 +20,6 @@ function smtpEnv(): NodeJS.ProcessEnv {
     EMAIL_SMTP_PORT: '587',
     EMAIL_SMTP_USER: 'mailer@example.test',
     EMAIL_SMTP_PASSWORD: 'test-password',
-    EMAIL_FROM_ADDRESS: 'no-reply@example.test',
     EMAIL_USE_TLS: 'true',
     EMAIL_USE_SSL: 'false',
   }
@@ -53,9 +52,30 @@ test('valida a configuração SMTP e exige STARTTLS sem SSL implícito', () => {
   noTlsEnv.EMAIL_USE_TLS = 'false'
   noTlsEnv.EMAIL_USE_SSL = 'false'
   assert.equal(readEmailSmtpConfig(noTlsEnv).requireTLS, false)
+  assert.deepEqual(toSmtpTransportOptions(readEmailSmtpConfig(noTlsEnv)), {
+    host: 'smtp.example.test',
+    port: 587,
+    secure: false,
+    ignoreTLS: true,
+    auth: { user: 'mailer@example.test', pass: 'test-password' },
+  })
+
+  const sslPriorityEnv = smtpEnv()
+  sslPriorityEnv.EMAIL_USE_SSL = 'true'
+  const warnings: string[] = []
+  const originalWarn = console.warn
+  console.warn = (...args: unknown[]) => warnings.push(args.join(' '))
+  try {
+    const config = readEmailSmtpConfig(sslPriorityEnv)
+    assert.equal(config.secure, true)
+    assert.equal(config.requireTLS, false)
+    assert.ok(warnings.some((warning) => warning.includes('EMAIL_USE_SSL')))
+  } finally {
+    console.warn = originalWarn
+  }
 })
 
-test('rejeita configuração SMTP incompleta, porta inválida e conflito TLS/SSL', () => {
+test('rejeita configuração SMTP incompleta e porta inválida', () => {
   const incomplete = smtpEnv()
   delete incomplete.EMAIL_SMTP_PASSWORD
   assert.throws(() => readEmailSmtpConfig(incomplete), /EMAIL_SMTP_PASSWORD/)
@@ -64,9 +84,6 @@ test('rejeita configuração SMTP incompleta, porta inválida e conflito TLS/SSL
   invalidPort.EMAIL_SMTP_PORT = '587.5'
   assert.throws(() => readEmailSmtpConfig(invalidPort), /número inteiro/)
 
-  const conflict = smtpEnv()
-  conflict.EMAIL_USE_SSL = 'true'
-  assert.throws(() => readEmailSmtpConfig(conflict), /não podem estar habilitados simultaneamente/)
 })
 
 test('cria a URL de ativação com URL e searchParams', () => {
@@ -107,7 +124,7 @@ test('envia e verifica pelo mesmo transportador SMTP sem conectar durante o test
     return {
       sendMail: async (message) => {
         sentMessage = message
-        return { messageId: 'message-id' }
+        return { messageId: 'message-id', accepted: [], rejected: [] }
       },
       verify: async () => {
         verifyCalls += 1
@@ -122,10 +139,10 @@ test('envia e verifica pelo mesmo transportador SMTP sem conectar durante o test
     'Subject',
     '<p>HTML</p>',
     'Text',
-  ), { messageId: 'message-id' })
+  ), { messageId: 'message-id', accepted: [], rejected: [] })
   assert.equal(transportOptions?.requireTLS, true)
   assert.deepEqual(sentMessage, {
-    from: 'no-reply@example.test',
+    from: 'mailer@example.test',
     to: 'client@example.test',
     subject: 'Subject',
     html: '<p>HTML</p>',
@@ -134,6 +151,41 @@ test('envia e verifica pelo mesmo transportador SMTP sem conectar durante o test
 
   await service.verificarConexao()
   assert.equal(verifyCalls, 1)
+})
+
+test('envia somente texto simples usando EMAIL_SMTP_USER como remetente', async () => {
+  let sentMessage: unknown
+  const service = createEmailService({
+    ...smtpEnv(),
+    EMAIL_FROM_ADDRESS: 'ignored@example.test',
+  }, () => ({
+    sendMail: async (message) => {
+      sentMessage = message
+      return {
+        messageId: 'text-message-id',
+        accepted: ['client@example.test'],
+        rejected: [],
+      }
+    },
+    verify: async () => true,
+  }))
+
+  assert.deepEqual(await service.enviarEmail(
+    'client@example.test',
+    'Subject',
+    undefined,
+    'Plain text body',
+  ), {
+    messageId: 'text-message-id',
+    accepted: ['client@example.test'],
+    rejected: [],
+  })
+  assert.deepEqual(sentMessage, {
+    from: 'mailer@example.test',
+    to: 'client@example.test',
+    subject: 'Subject',
+    text: 'Plain text body',
+  })
 })
 
 test('rejeita destinatário inválido e classifica falhas SMTP sem propagar detalhes', async () => {

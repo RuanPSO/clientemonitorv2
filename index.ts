@@ -15,6 +15,7 @@ import { createCorsMiddleware } from './config/cors.js'
 import { getSessionCookieOptions } from './config/session.js'
 import { cacheStats, invalidateAll } from './lib/cache.js'
 import authRoutes from './routes/auth.routes.js'
+import emailRoutes, { createSendEmailRoute } from './routes/email.routes.js'
 import entraAuthRoutes from './routes/entra-auth.routes.js'
 import hostRoutes from './routes/host.routes.js'
 import grupoRoutes from './routes/grupo.routes.js'
@@ -59,7 +60,7 @@ try {
     `   ${reason}`,
     '',
     '   Confira EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER,',
-    '   EMAIL_SMTP_PASSWORD, EMAIL_FROM_ADDRESS, EMAIL_USE_TLS e EMAIL_USE_SSL no .env.',
+    '   EMAIL_SMTP_PASSWORD, EMAIL_USE_TLS e EMAIL_USE_SSL no .env.',
     '',
   ].join('\n'))
   process.exit(1)
@@ -95,6 +96,8 @@ app.get('/', (_req, res) => {
 
 // ─── Rotas da aplicação ───
 app.use(authRoutes)
+app.use('/email', emailRoutes)
+app.use('/send-email', createSendEmailRoute())
 app.use('/auth', entraAuthRoutes)
 app.use('/admin', companyZabbixTestRoutes)
 app.use(conectadoRoutes)
@@ -130,6 +133,13 @@ app.use((req: Request, res: Response) => {
 
 // ─── Tratamento de erros global ───
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation error',
+      details: [{ field: 'body', message: 'JSON malformado.' }],
+    })
+  }
   console.error('💥 Erro não tratado:', err)
   res.status(500).json({ erro: 'Erro interno do servidor' })
 })

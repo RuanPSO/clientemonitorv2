@@ -14,7 +14,7 @@ import { prismaCliente } from '../lib/prisma-cliente.js'
 import { requireAccessLevel } from '../middlewares/access-control.middleware.js'
 import { logger } from '../utils/logger.js'
 import { createActivationUrl } from '../services/email/email.config.js'
-import { EmailServiceError, enviarEmail, verificarConexaoSmtp } from '../services/email/email.service.js'
+import { EmailServiceError, enviarEmail } from '../services/email/email.service.js'
 import { ASSUNTO_CONVITE_CLIENTE, renderConviteCliente } from '../services/email/templates/convite-cliente.template.js'
 
 const router = Router()
@@ -216,7 +216,7 @@ router.post('/users', validarToken, requireAccessLevel('total'), async (req: Req
 // POST /clientes/cadastrar
 // O token só aparece em NODE_ENV=test com EMAIL_INCLUDE_ACTIVATION_TOKEN_IN_RESPONSE=true.
 // ─────────────────────────────────────────────────────────────
-router.post('/clientes/cadastrar', requireAccessLevel('total'), async (req: Request, res: Response) => {
+router.post('/clientes/cadastrar', async (req: Request, res: Response) => {
   try {
     const body = req.body ?? {}
     const { nome, cargo, email, id_grupo } = body
@@ -351,7 +351,7 @@ router.post('/clientes/cadastrar', requireAccessLevel('total'), async (req: Requ
   }
 })
 
-router.post('/clientes/:id/reenviar-convite', requireAccessLevel('total'), async (req: Request, res: Response) => {
+router.post('/clientes/:id/reenviar-convite', async (req: Request, res: Response) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ sucesso: false, erro: 'ID de cliente inválido' })
@@ -414,18 +414,6 @@ router.post('/clientes/:id/reenviar-convite', requireAccessLevel('total'), async
       errorName: error instanceof Error ? error.name : 'unknown',
     })
     return res.status(500).json({ sucesso: false, erro: 'Erro ao reenviar convite' })
-  }
-})
-
-router.post('/email/testar', requireAccessLevel('total'), async (_req: Request, res: Response) => {
-  try {
-    await verificarConexaoSmtp()
-    return res.json({ sucesso: true, mensagem: 'Conexão SMTP estabelecida com sucesso.' })
-  } catch (error: unknown) {
-    logger.error('Falha no teste administrativo de conexão SMTP', {
-      category: error instanceof EmailServiceError ? error.category : 'configuration_or_internal',
-    })
-    return res.status(502).json({ sucesso: false, mensagem: 'Não foi possível estabelecer conexão com o SMTP.' })
   }
 })
 
