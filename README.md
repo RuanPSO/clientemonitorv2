@@ -113,11 +113,13 @@ Content-Type: application/json
   "nome": "João da Silva",
   "cargo": "Operações",
   "email": "joao.silva@empresa.com.br",
-  "id_grupo": 10
+  "id_grupo": "10084"
 }
 ```
 
-Em caso de sucesso, responde HTTP 201 com os dados públicos do usuário (`ativo: false`), destinatário e validade do token, sem expor o token. O token só pode ser incluído para testes quando `NODE_ENV=test` e `EMAIL_INCLUDE_ACTIVATION_TOKEN_IN_RESPONSE=true`. Se o SMTP falhar depois da criação, responde HTTP 502 com `cadastro_criado: true` e `email_enviado: false`; o usuário permanece inativo e o token atual continua válido.
+No body, `id_grupo` deve conter o identificador do grupo retornado pelo Zabbix (`groupid`), correspondente à coluna `grupos_hosts.groupid_zabbix` — não ao ID interno `grupos_hosts.id`. Durante o cadastro, a API procura o grupo por `groupid_zabbix` e grava em `usuarios.id_grupo` o ID interno (`grupos_hosts.id`) da linha encontrada. O identificador pode ser enviado como string para preservar todos os dígitos de IDs grandes.
+
+Em caso de sucesso, responde HTTP 201 com os dados públicos do usuário (`ativo: false`), destinatário e validade do token, sem expor o token. A resposta mostra `usuario.id_grupo` como o ID interno gravado e `usuario.groupid_zabbix` como o identificador do Zabbix recebido. O token só pode ser incluído para testes quando `NODE_ENV=test` e `EMAIL_INCLUDE_ACTIVATION_TOKEN_IN_RESPONSE=true`. Se o SMTP falhar depois da criação, responde HTTP 502 com `cadastro_criado: true` e `email_enviado: false`; o usuário permanece inativo e o token atual continua válido.
 
 Resposta de sucesso:
 
@@ -129,7 +131,8 @@ Resposta de sucesso:
     "id": 123,
     "nome": "João da Silva",
     "email": "joao.silva@empresa.com.br",
-    "id_grupo": 10,
+    "id_grupo": 2,
+    "groupid_zabbix": "10084",
     "ativo": false
   },
   "email": {
@@ -169,6 +172,33 @@ Cookie: clientemonitor.sid=...
 ```
 
 O reenvio responde HTTP 200 com `sucesso: true`, dados públicos do usuário, destinatário e a nova expiração; não retorna o token. Se o SMTP falhar, responde HTTP 502 e mantém a conta inativa.
+
+### Ativar a conta pelo convite
+
+A ativação também é pública e não exige token de autenticação, cookie ou sessão. O token de ativação é enviado no link do convite e vale por 24 horas. O link usa `GET /ativar?token=...` para validar o convite; depois, envie a senha escolhida com `POST /ativar`:
+
+```http
+POST /ativar
+Content-Type: application/json
+```
+
+```json
+{
+  "token": "TOKEN_RECEBIDO_NO_LINK_DO_CONVITE",
+  "senha": "SenhaForte!123",
+  "confirmarSenha": "SenhaForte!123"
+}
+```
+
+`confirmarSenha` pode ser omitido na chamada à API; se enviado, precisa corresponder a `senha`. A senha deve ter no mínimo 8 caracteres e incluir letra maiúscula, minúscula, número e caractere especial. Em caso de sucesso, responde HTTP 200:
+
+```json
+{
+  "message": "Conta ativada com sucesso"
+}
+```
+
+Token inválido retorna HTTP 404, expirado retorna HTTP 410, e token já utilizado ou conta já ativada retorna HTTP 409. Não compartilhe o token: após a ativação ele é invalidado.
 
 #### Enviar e-mail de teste pelo Postman (somente desenvolvimento)
 

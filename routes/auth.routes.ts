@@ -31,6 +31,24 @@ if (!SECRET) {
   throw new Error('SECRET_KEY (ou APIKEY) não definida no .env')
 }
 
+const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n
+
+export function parseZabbixGroupId(value: unknown): bigint | null {
+  let serialized: string
+  if (typeof value === 'string') {
+    serialized = value.trim()
+  } else if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    serialized = String(value)
+  } else {
+    return null
+  }
+
+  if (!/^\d+$/.test(serialized)) return null
+
+  const groupId = BigInt(serialized)
+  return groupId > 0n && groupId <= MAX_POSTGRES_BIGINT ? groupId : null
+}
+
 /**
  * POST /auth/token
  */
@@ -237,7 +255,7 @@ router.post('/clientes/cadastrar', async (req: Request, res: Response) => {
     const nomeLimpo = String(nome).trim()
     const cargoLimpo = String(cargo).trim()
     const emailLimpo = String(email).trim().toLowerCase()
-    const idGrupoNumero = Number(id_grupo)
+    const idGrupoZabbix = parseZabbixGroupId(id_grupo)
 
     if (!nomeLimpo || !cargoLimpo || !emailLimpo) {
       return res.status(400).json({ sucesso: false, erro: 'nome, cargo e e-mail não podem ficar vazios' })
@@ -248,19 +266,19 @@ router.post('/clientes/cadastrar', async (req: Request, res: Response) => {
       return res.status(400).json({ sucesso: false, erro: 'E-mail inválido' })
     }
 
-    if (!Number.isInteger(idGrupoNumero) || idGrupoNumero <= 0) {
+    if (idGrupoZabbix === null) {
       return res.status(400).json({ sucesso: false, erro: 'id_grupo inválido' })
     }
 
-    const grupos = await prismaCliente.$queryRaw<Array<{ id: number; nome: string }>>`
-      SELECT id, nome
+    const grupos = await prismaCliente.$queryRaw<Array<{ id: number; nome: string; groupid_zabbix: bigint }>>`
+      SELECT id, nome, groupid_zabbix
       FROM grupos_hosts
-      WHERE id = ${idGrupoNumero}
+      WHERE groupid_zabbix = ${idGrupoZabbix}
       LIMIT 1
     `
     const grupoInfo = grupos[0]
     if (!grupoInfo) {
-      return res.status(400).json({ sucesso: false, erro: 'Grupo informado não existe ou não está autorizado para cadastro' })
+      return res.status(400).json({ sucesso: false, erro: 'Grupo Zabbix informado não existe ou ainda não está sincronizado' })
     }
 
     const emailDuplicado = await prismaCliente.$queryRaw<Array<{ id: number }>>`
@@ -297,7 +315,7 @@ router.post('/clientes/cadastrar', async (req: Request, res: Response) => {
         nome: nomeLimpo,
         email: emailLimpo,
         cargo: cargoLimpo,
-        id_grupo: idGrupoNumero,
+        id_grupo: Number(grupoInfo.id),
         token_ativacao: tokenAtivacao,
         token_expira: tokenExpira,
       })
@@ -333,7 +351,8 @@ router.post('/clientes/cadastrar', async (req: Request, res: Response) => {
         id: idUsuario,
         nome: nomeLimpo,
         email: emailLimpo,
-        id_grupo: idGrupoNumero,
+        id_grupo: Number(grupoInfo.id),
+        groupid_zabbix: String(grupoInfo.groupid_zabbix),
         ativo: false,
       },
       email: {

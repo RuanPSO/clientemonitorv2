@@ -12,7 +12,7 @@ import { EmailServiceError } from '../services/email/email.service.js'
 process.env.DATABASE_CLIENTE_URL ??= 'postgresql://test:test@127.0.0.1:5432/test'
 process.env.SECRET_KEY ??= 'test-secret-key-for-email-admin-routes'
 
-const { default: authRoutes } = await import('../routes/auth.routes.js')
+const { default: authRoutes, parseZabbixGroupId } = await import('../routes/auth.routes.js')
 
 async function startApi(emailDependencies: EmailControllerDependencies, nodeEnv = 'development') {
   const originalNodeEnv = process.env.NODE_ENV
@@ -85,34 +85,44 @@ test('a rota de teste SMTP continua exigindo identidade administrativa', async (
         method: 'POST',
         headers: { cookie },
       })
-
-      test('cadastro e reenvio de convite aceitam chamadas sem sessão e validam os dados', async () => {
-        const api = await startApi({
-          enviarEmail: async () => ({ messageId: 'test-message-id', accepted: [], rejected: [] }),
-          verificarConexaoSmtp: async () => undefined,
-        })
-
-        try {
-          const cadastro = await fetch(`${api.baseUrl}/clientes/cadastrar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          })
-          assert.equal(cadastro.status, 400, 'cadastro sem sessão deve chegar à validação')
-
-          const reenvio = await fetch(`${api.baseUrl}/clientes/0/reenviar-convite`, {
-            method: 'POST',
-          })
-          assert.equal(reenvio.status, 400, 'reenvio sem sessão deve chegar à validação do ID')
-        } finally {
-          await api.close()
-        }
-      })
       assert.equal(response.status, 403, `${route} deve rejeitar identidade sem acesso total`)
     }
   } finally {
     await api.close()
   }
+})
+
+test('cadastro e reenvio de convite aceitam chamadas sem sessão e validam os dados', async () => {
+  const api = await startApi({
+    enviarEmail: async () => ({ messageId: 'test-message-id', accepted: [], rejected: [] }),
+    verificarConexaoSmtp: async () => undefined,
+  })
+
+  try {
+    const cadastro = await fetch(`${api.baseUrl}/clientes/cadastrar`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    assert.equal(cadastro.status, 400, 'cadastro sem sessão deve chegar à validação')
+
+    const reenvio = await fetch(`${api.baseUrl}/clientes/0/reenviar-convite`, {
+      method: 'POST',
+    })
+    assert.equal(reenvio.status, 400, 'reenvio sem sessão deve chegar à validação do ID')
+  } finally {
+    await api.close()
+  }
+})
+
+test('interpreta id_grupo como groupid_zabbix sem perda de precisão', () => {
+  assert.equal(parseZabbixGroupId('173'), 173n)
+  assert.equal(parseZabbixGroupId('9007199254740993'), 9007199254740993n)
+  assert.equal(parseZabbixGroupId(Number.MAX_SAFE_INTEGER + 1), null)
+  assert.equal(parseZabbixGroupId('0'), null)
+  assert.equal(parseZabbixGroupId('-1'), null)
+  assert.equal(parseZabbixGroupId('1.5'), null)
+  assert.equal(parseZabbixGroupId('9223372036854775808'), null)
 })
 
 test('testar-envio permite chamada sem autenticação somente em desenvolvimento', async () => {
