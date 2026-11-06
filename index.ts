@@ -26,6 +26,7 @@ import incidentesRoutes from './routes/incidentes.routes.js'
 import docsRoutes from './routes/docs.routes.js'
 import companyZabbixTestRoutes from './routes/company-zabbix-test.routes.js'
 import conectadoRoutes from './routes/conectado.routes.js'
+import reportRoutes from './routes/report.routes.js'
 import { validateMicrosoftAuthEnv } from './config/env.js'
 import { logger } from './utils/logger.js'
 import { initializeEmailService } from './services/email/email.service.js'
@@ -101,6 +102,7 @@ app.use('/send-email', createSendEmailRoute())
 app.use('/auth', entraAuthRoutes)
 app.use('/admin', companyZabbixTestRoutes)
 app.use(conectadoRoutes)
+app.use(reportRoutes)
 app.use(hostRoutes)
 app.use(grupoRoutes)
 app.use(relatorioRoutes)

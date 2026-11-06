@@ -107,6 +107,24 @@ export const apiVersion = readApplicationVersion()
 
 export const apiOperations: ApiOperation[] = [
   {
+    operationId: 'createReport',
+    method: 'post',
+    path: '/report',
+    category: 'Relatórios',
+    summary: 'Registrar um relatório de acesso ao host',
+    description: 'Armazena usuario, host, details e time no banco SQLite local. Não requer autenticação. time deve ser uma string no formato 24 horas HH:mm, por exemplo "11:41".',
+    auth: 'public',
+    successStatus: '201',
+    body: [
+      { name: 'usuario', type: 'string', required: true, description: 'Usuário relacionado ao acesso.', example: 'user' },
+      { name: 'host', type: 'string', required: true, description: 'Host acessado.', example: 'host' },
+      { name: 'details', type: 'string', required: true, description: 'Detalhes do acesso.', example: 'acesso remoto ao host' },
+      { name: 'time', type: 'string', required: true, description: 'Horário local no formato HH:mm (00:00 a 23:59).', example: '11:41' },
+    ],
+    successDescription: 'Relatório armazenado no banco SQLite.',
+    responseExample: { success: true, id: 1 },
+  },
+  {
     operationId: 'checkGuacamoleConnectivity',
     method: 'get',
     path: '/api/conectado',

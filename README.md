@@ -18,6 +18,21 @@ Esta branch representa a evolução da solução em migração de Python para Ty
 - JWT / autenticação
 - Microsoft Entra ID
 
+## Registrar relatório de acesso
+
+`POST /report` é uma rota pública que salva os dados recebidos no banco SQLite `data/reports.sqlite3`. O arquivo e a pasta são criados automaticamente quando a API inicia. Envie `Content-Type: application/json`:
+
+```json
+{
+  "usuario": "user",
+  "host": "host",
+  "details": "acesso remoto ao host",
+  "time": "11:41"
+}
+```
+
+`usuario`, `host` e `details` devem ser textos não vazios. `time` deve ser uma string no formato de 24 horas `HH:mm` (`00:00` a `23:59`). Em sucesso, a rota responde HTTP 201 com o identificador do registro; entradas inválidas respondem HTTP 400.
+
 ## Nome sugerido para a branch ou projeto
 - portal-interno-backend
 - portal-interno-api

@@ -4,5 +4,6 @@ node_modules
 .env.*
 !.env.example
 /generated/prisma
+/data/*.sqlite3
 .txt
 /docs
